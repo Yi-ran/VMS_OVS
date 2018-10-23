@@ -986,12 +986,12 @@ int OnFeedBack(struct rcv_ack* the_entry,int fbkid,u32 receiveCount,u32 fbkNumbe
         ch->RttSize += receiveCount;
         if(isRCE == 0) {
             if(ch->rwnd < ch->rwnd_ssthresh) {
-                adder = receiveCount * MSS >> 1;
+                adder = receiveCount >> 1;
             } else {
                 if(the_entry->Flags & VMS_SIN_FLAG) {
-                    adder = ((MSS * MSS * receiveCount) >> 1) / ch->rwnd; 
+                    adder = ((MSS * receiveCount) >> 1) / ch->rwnd; 
                 } else {
-                    adder = ((MSS * MSS * receiveCount) >> 1 >> 3) / ch->rwnd; 
+                    adder = ((MSS * receiveCount) >> 1 >> 3) / ch->rwnd; 
                 }
             }
             if (adder < 1) {
@@ -1372,7 +1372,8 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                     //clear the vms mark,since the first incoming syn will miss the flow table. 
                     ipv4_change_dsfield(nh, 0, OVS_ECN_ZERO);
                     /*csum_replace2(&tcp->check, htons(tcp->res1 << 12), htons((tcp->res1 & OVS_VMS_CLEAR)<<12));*/
-                    tcp->res1 &= OVS_VMS_CLEAR;
+                    //TODO: If we clear VMS in the syn packet, the first syn packet will have no response, causing retransmission. Need to figure out.
+                    //tcp->res1 &= OVS_VMS_CLEAR;
 
 					tcp_key64 = get_tcp_key64(srcip, dstip, truesrcport, dstport);
 					rcu_read_lock();
@@ -1504,15 +1505,10 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 						spin_lock(&the_entry->lock);
                         //add by Yiran 2017 11 11: we only choose channel for data packets
                         
-                        if(tcp_data_len > 0 && before(ntohl(tcp->seq),the_entry->snd_nxt))
+                        if(tcp_data_len > 0 && before(end_seq,the_entry->snd_nxt))
                         {
                             printk(KERN_INFO "packet size: %u. \n",ntohs(nh->tot_len));
-                            //if(ntohs(nh->tot_len) > 1500)
-                            //{
-                                printk(KERN_INFO "retransmission packet. there is packet loss? ntohl(tcp->seq):%u, the_entry->snd_nxt: %u. \n",ntohl(tcp->seq),the_entry->snd_nxt);
-
-                            //}
-
+                            printk(KERN_INFO "retransmission packet. there is packet loss? ntohl(tcp->seq):%u, the_entry->snd_nxt: %u. \n",ntohl(tcp->seq),the_entry->snd_nxt);
 
                         }
                         else if(tcp_data_len > 0 && (after(end_seq,the_entry->snd_nxt) || (end_seq == the_entry->snd_nxt)))
@@ -1698,7 +1694,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                 }
                                 if (is_pack && fbkcid < 8) {	
                                     //&& before(the_entry->snd_una, the_entry->snd_nxt)
-                                    if (acked == 0  && (tcp_data_len == 0)) {
+                                    if (acked == 0  && (tcp_data_len == 0) && before(the_entry->snd_una, the_entry->snd_nxt)) {
                                     //if (acked == 0 && before(the_entry->snd_una,the_entry->snd_nxt) && (tcp_data_len == 0)) {
                                         //printk("Duplicated ACK!!!!!, ack_seq:%u, expectd:%u, fbkcid:%u, receivedCount:%u, isRCE:%u. \n", ntohl(tcp->ack_seq),the_entry->snd_una, fbkcid,receivedCount,isRCE);
                                         the_entry->dupack_cnt ++;
@@ -1712,14 +1708,18 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                         if(the_entry->dupack_cnt >= 3)
                                         {
                                             the_entry->dupack_cnt = 0;
-                                            //the_entry->Flags |= VMS_SIN_FLAG;
+                                            the_entry->Flags |= VMS_SIN_FLAG;
                                             printk("imcoming packet: dupack_cnt >=3, regard as packet lost, set to SIN\n");
                                         }
-                                        the_entry->Channels[fbkcid].rwnd_ssthresh = the_entry->Channels[fbkcid].rwnd >> 1;
-                                        if (the_entry->Channels[fbkcid].rwnd_ssthresh < 2800)
+                                        if(isRCE)
                                         {
-                                            the_entry->Channels[fbkcid].rwnd_ssthresh = 2800;
+                                            the_entry->Channels[fbkcid].rwnd_ssthresh = the_entry->Channels[fbkcid].rwnd >> 1;
+                                            if (the_entry->Channels[fbkcid].rwnd_ssthresh < 2800)
+                                            {
+                                                the_entry->Channels[fbkcid].rwnd_ssthresh = 2800;
+                                            }
                                         }
+                                        
                                     }
 
                                 }
@@ -1730,9 +1730,9 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                 //rwnd enforce put here
                                 if ( (ntohs(tcp->window) << the_entry->snd_wscale) > the_entry->rwnd){
                                     u16 enforce_win = the_entry->rwnd >> the_entry->snd_wscale;
-                                    printk("ntohs(tcp->window):%u,enforce_win:%u.\n",ntohs(tcp->window),enforce_win);
+                                    //printk("ntohs(tcp->window):%u,enforce_win:%u.\n",ntohs(tcp->window),enforce_win);
                                     /*csum_replace2(&tcp->check,tcp->window, htons(enforce_win));*/
-                                    //tcp->window = htons(enforce_win);
+                                    tcp->window = htons(enforce_win);
                                     //printk(KERN_INFO "update tcp->window %d\n", enforce_win);
                                 }
 
