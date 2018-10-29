@@ -76,7 +76,7 @@
 #define RIGHT 2
 #define BRIDGE_NAME "br0" //help determine the direction of a packet, when we move to container, we only compare first 2 char
 #define OVS_PACK_HEADROOM 32
-#define MSS_DEFAULT 1500U
+#define MSS_DEFAULT 1400U
 #define TBL_SIZE 10U
 //#define RWND_INIT 1400U
 #define RWND_INIT 2800U
@@ -101,7 +101,6 @@ MODULE_PARM_DESC(dctcp_shift_g, "parameter g for updating dctcp_alpha");
 bool is_init = false;
 int first = 1;
 static struct timer_list my_timer;
-//static unsigned int FEEDBACK = 0;
 enum {
         OVS_VMS_ENABLE = 1U,
         OVS_VMS_CLEAR = 14U,
@@ -140,6 +139,20 @@ struct ListNode {
 	struct ListNode		*next;
 };
 
+struct SeqNode {
+    u32 seq;
+    u8 cid;
+    struct SeqNode     *next;
+};
+
+struct SeqChain
+{
+    struct SeqNode *head;
+    struct SeqNode *tail;
+};
+
+
+
 typedef struct TreeNode
 {
     struct ListNode        *head;
@@ -151,8 +164,6 @@ typedef struct TreeNode
 }*pnode;
 
 struct ChannelInfo {
-    u32 prevseq;
-    u32 prevsize;
 	u32 receivedCount;
 	u32 rwnd;			
 	u32 rwnd_ssthresh;
@@ -164,7 +175,7 @@ struct ChannelInfo {
 	u32 RttSize;
 	u32 RttCESize;	
 	u16 flags;
-    bool loss;
+    bool lossdetected;
 };
 
 struct rcv_data {
@@ -196,6 +207,9 @@ struct rcv_ack {
 	u32 MileStone;
 	u8 Flags;
 	u8 currentChannel;
+    //for packet loss
+    struct SeqChain *seq_chain;
+
 	struct ChannelInfo Channels[8];
 	spinlock_t lock;
 	struct hlist_node hash;
@@ -366,8 +380,7 @@ static void SendOut(struct sk_buff* skb,struct rcv_data* entry)
 	struct sw_flow_key *key = entry->skey;
 	struct sw_flow *flow = entry->flow;
 	struct datapath *dp = entry->dp;
-	//stats = this_cpu_ptr(dp->stats_percpu);
-	//ovs_flow_stats_update(flow,key->tp.flags,skb);
+	
 	sf_acts = rcu_dereference(flow->sf_acts);
 	if (skb == NULL)	{
 		//printk("here skb has been null.\n");
@@ -495,6 +508,120 @@ void freeTree(struct TreeNode** root)
 	kfree(*root);
 	(*root) = NULL;
 	
+}
+void insertToSeqList(struct rcv_ack* entry,u32 seq, u8 cid)
+{
+    struct SeqChain *q = NULL;
+    struct SeqNode *l = NULL;
+
+    
+    //printk("Insert into seqList, seq: %u, cid:%u.\n",seq,cid);
+
+    if(entry->seq_chain == NULL)
+    {
+
+        q = kzalloc(sizeof(struct SeqChain), GFP_ATOMIC);
+        if(q!= NULL)
+        {   
+            l = kzalloc(sizeof(struct SeqNode), GFP_ATOMIC);
+            if(l != NULL)
+            {
+                l->seq = seq;
+                l->cid = cid;
+                l->next = NULL;
+                entry->seq_chain = q;
+                entry->seq_chain->head = l;
+                entry->seq_chain->tail = l; 
+                
+            }
+            
+        }
+        
+    }
+    else
+    {
+        l = kzalloc(sizeof(struct SeqNode), GFP_ATOMIC);
+        if(l != NULL)
+        {
+                
+            l->seq = seq;
+            l->cid = cid;
+            l->next = NULL;
+            entry->seq_chain -> tail ->next = l;
+            entry->seq_chain -> tail = l;
+        }
+        
+    }
+
+    
+}
+u8 FindLossChannel(u32 seq, struct SeqChain *root)
+{
+    struct SeqNode * start = root->head;
+    struct SeqNode * next;
+    if(start == NULL)
+    {
+        return 8;
+    }
+    next = start ->next;
+    if(next == NULL)
+    {
+        if(seq == start->seq || after(seq,start->seq))
+        {
+            return start->cid;
+        }
+        else
+        {
+            return 8;
+        }
+    }
+    while(next!= NULL)
+    {
+        if(!before(seq, start->seq) && before(seq,next->seq))
+        {
+            return start->cid;
+        }
+        else if(after(start->seq,seq))
+        {
+            return 8;
+        }
+        else if(!before(seq,next->seq))
+        {
+            start = start->next;
+            next = next->next;
+        }
+    }
+    return start ->cid;
+    
+}
+
+
+
+void freeChain(struct SeqChain *root, u32 ack, struct rcv_ack* entry)
+{
+    if(root == NULL)
+    {
+        //printk("enter into freeChain, but root is null.\n");
+        return;
+    }
+    
+    struct SeqNode * start = root->head;
+    struct SeqNode * tmp = start;
+    while(tmp != NULL && before(tmp->seq,ack))
+    {
+        
+        if(entry->Channels[tmp->cid].lossdetected == true)
+        {
+            entry->Channels[tmp->cid].lossdetected = false;
+        }
+        //printk("free seqnode, seq: %u, ack:%u.\n",tmp->seq,ack);
+        tmp = start->next;
+        kfree(start);
+        start = tmp;
+
+    }
+    start = NULL;
+    root->head = tmp;
 }
 
 void insertToTree(struct TreeNode **root, struct sk_buff *skb, u32 seq, u32 tcp_data_len)
@@ -927,20 +1054,38 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
     int c = the_entry->currentChannel;
     int check = c;
     struct ChannelInfo *ch = NULL;
-    int i = 0;
+    u8 i = 0;
     u32 max = 0;
     int maxC = (c + 1) & 7;
     u32 onfly = 0;
     u64 tmp = 0x100000000;
     
-    //after packet loss, degrade to one channel
+    //after packet loss, avoid the loss channel, if no loss channel, degrade to one channel
+    maxC = 0;
     if(the_entry->Flags & VMS_SIN_FLAG)
-    {
-        the_entry->Channels[0].LocalSendSeq += psize;
-        the_entry->currentChannel = 0;
-        return 0;
+    {        
+        for (i = 0; i <= VMS_CHANNEL_NUM - 1; i++)  {
+            
+            ch = &(the_entry -> Channels[i]);
+            if(ch->lossdetected == true)
+            {
+                continue;
+            }               
+            tmp += ch->LocalSendSeq - ch->LocalFBKSeq;
+            onfly = (u32)tmp;               
+            if (max <= ch->rwnd - onfly) {
+                        max = ch->rwnd - onfly;
+                        maxC = i;
+            }  
+        }
+        the_entry->Channels[maxC].LocalSendSeq += psize;
+        the_entry->currentChannel = maxC;
+        return maxC;        
+        
     }
-   
+    max = 0;
+    maxC = (c + 1) & 7;
+
     for (i = 1; i <= VMS_CHANNEL_NUM; i++)	{
         ch = &(the_entry -> Channels[c]);
         if (ch == NULL) {
@@ -973,6 +1118,7 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
     the_entry->currentChannel = maxC;
 
     //printk("find max channel: %u. \n",maxC);
+
     return maxC;
 }
 
@@ -1343,13 +1489,13 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 						new_entry->Channels[index].rwnd_ssthresh = RWND_SSTHRESH_INIT;//infinite
 						new_entry->Channels[index].alpha = DCTCP_ALPHA_INIT;
 						new_entry->Channels[index].flags = 0;
-                        new_entry->Channels[index].prevseq = 0;
-                        new_entry->Channels[index].prevsize = 0;
-                        new_entry->Channels[index].loss = false;
+                       
+                        new_entry->Channels[index].lossdetected = false;
 					}
 					new_entry->currentChannel = 0;
 					new_entry->dupack_cnt = 0;
 					new_entry->Flags = 0;
+                    new_entry->seq_chain = NULL;
 					spin_lock_init(&new_entry->lock);							
 				}
 				/*TODO: we may also need to consider RST */
@@ -1421,9 +1567,8 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 							new_entry->Channels[index].rwnd_ssthresh = RWND_SSTHRESH_INIT;//infinite
 							new_entry->Channels[index].alpha = DCTCP_ALPHA_INIT;
 							new_entry->Channels[index].flags = 0;
-                            new_entry->Channels[index].prevseq = 0;
-                            new_entry->Channels[index].prevsize = 0;
-                            new_entry->Channels[index].loss = false;
+                            new_entry->Channels[index].lossdetected = false;
+                            
 						}
 						spin_unlock(&new_entry->lock);
 						//printk(KERN_INFO "rcv_data_hashtbl new entry inserted. %d --> %d\n", truesrcport, dstport);
@@ -1469,10 +1614,6 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 	flow = ovs_flow_tbl_lookup_stats(&dp->table, key, skb_get_hash(skb),
 					 &n_mask_hit);
 	if (unlikely(!flow)) {
-        if (!ovs_packet_to_net(skb))
-        {
-            //printk(KERN_INFO "miss!!!!\n");
-        }
 		struct dp_upcall_info upcall;
 		int error;
 		memset(&upcall, 0, sizeof(upcall));
@@ -1499,7 +1640,8 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 			u64 tcp_key64;
 
 			//Yiran's logic:default channel,using when reset
-			int cid = 0;	
+			int cid = 0;
+            int lossch = 8;	
 			tcp = tcp_hdr(skb);
 			srcip = ntohl(nh->saddr);
 			dstip = ntohl(nh->daddr);
@@ -1511,10 +1653,10 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 				//process outgoing traffic
 				if (ovs_packet_to_net(skb)) {
 					int tcp_data_len;
-                    bool retransmission = false;
 					u16 psize;
 					u32 end_seq;
 					struct rcv_ack * the_entry = NULL;
+                    bool retransmission =  false;
 					//printk(KERN_INFO "This packet is outgoing, choose channel and update.(%d --> %d)\n",srcport, dstport);
 					tcp_data_len = ntohs(nh->tot_len) - (nh->ihl << 2) - (tcp->doff << 2);
 					psize = tcp_data_len;
@@ -1531,7 +1673,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                             printk(KERN_INFO "packet size: %u. \n",ntohs(nh->tot_len));
                             printk(KERN_INFO "retransmission packet. there is packet loss? ntohl(tcp->seq):%u, the_entry->snd_nxt: %u. \n",ntohl(tcp->seq),the_entry->snd_nxt);
                             //We consider a retransmission is caused by packet loss
-                            //the_entry->Flags |= VMS_SIN_FLAG;
+                            the_entry->Flags |= VMS_SIN_FLAG;
                             retransmission = true;
 
                         }
@@ -1540,22 +1682,29 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                             the_entry->snd_nxt = end_seq;
                         }
 
-						cid = Window_based_Channel_Choosing(the_entry,psize);
-
-                        if(retransmission == false){
-                            if(the_entry->Channels[cid].prevseq + the_entry->Channels[cid].prevsize == ntohl(tcp->seq))
+                        if(the_entry->Flags & VMS_SIN_FLAG){
+                            lossch = FindLossChannel(ntohl(tcp->seq),the_entry->seq_chain);
+                            if(lossch < 8)
                             {
-                                the_entry->Channels[cid].prevsize += psize;
+                                the_entry->Channels[lossch].lossdetected = true;
                             }
                             else
                             {
-                                the_entry->Channels[cid].prevsize = psize;
-                                the_entry->Channels[cid].prevseq = ntohl(tcp->seq);
+                                printk("We don't find the channel has loss packet");
                             }
+
+                        }
+						cid = Window_based_Channel_Choosing(the_entry,psize);
+                        if(retransmission == false && tcp_data_len > 0)
+                        {
+                            insertToSeqList(the_entry,ntohl(tcp->seq),cid);
+                            if(the_entry->seq_chain == NULL)
+                            {
+                                //printk("seq_chain is null!!!!\n");
+                            }
+                            
                         }
 
-                        
-                        //printk(KERN_INFO "This packet is outgoing, choose channel %d. tcp_data_len: %u. \n",cid, tcp_data_len);
                         //csum_replace2(&tcp->check,tcp->source, htons(((srcport - cid) & 7)+ ((srcport & (~7)))));
 						tcp->source = htons(((srcport - cid) & 7)+ ((srcport & (~7))));
                         //csum_replace2(&tcp->check, htons(tcp->res1 << 12), htons(tcp->res1 | (cid << 1) << 12));
@@ -1671,7 +1820,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                 {
                                     the_entry->reorder = 1;
                                     reorder = 1; //add to buffer
-                                    //printk("!!!!!!!!!!!!the_entry->expected:%u, receive seq:%u, tcp_data_len:%u. \n",the_entry->expected, seq,tcp_data_len);
+                                    printk("!!!!!!!!!!!!the_entry->expected:%u, receive seq:%u, tcp_data_len:%u. \n",the_entry->expected, seq,tcp_data_len);
                                 }
                                 //expected = seq + tcp_data_len; // expected next data packet
                                 the_entry->Channels[ChannelID].receivedCount += tcp_data_len;
@@ -1751,6 +1900,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                     the_entry->dupack_cnt ++;
                                 } else {
                                     the_entry->dupack_cnt = 0;
+                                    freeChain(the_entry->seq_chain,ntohl(tcp->ack_seq),the_entry);
                                 }
                                 if (is_pack) {  
                                     OnFeedBack(the_entry,fbkcid,receivedCount,fbkNumer,isRCE,seq_ack);
@@ -1761,7 +1911,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                     if(the_entry->dupack_cnt >= 3)
                                     {
                                         the_entry->dupack_cnt = 0;
-                                        the_entry->Flags |= VMS_SIN_FLAG;
+                                        //the_entry->Flags |= VMS_SIN_FLAG;
                                         printk("imcoming packet: dupack_cnt >=3\n");
                                     }
                                         
@@ -1801,7 +1951,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
       it is always 0. For producation code, this can be solved by adding 
       a few more lines of code
      */
-    struct sk_buff *newskb = NULL;
+    //struct sk_buff *newskb = NULL;
     struct rcv_data * the_entry = NULL;
     if(ntohs(skb->protocol) == ETH_P_IP)
     {
@@ -1860,17 +2010,16 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                 if(likely(the_entry) && reorder == 1)
                 {
                     
-                    reorder = 1;
                     spin_lock(&the_entry->lock);
-                    newskb = skb;
-                    if(newskb != NULL)
+                    //newskb = skb;
+                    if(skb != NULL)
                     {
-                        addToBuffer(key, newskb, flow, dp, the_entry);
+                        addToBuffer(key, skb, flow, dp, the_entry);
                         //printk("add to reorder buffer.\n");
                     }
                     else 
                     {
-                        printk("copy skb failure!.\n");
+                        printk("add to buffer failure!.\n");
                     }
                     spin_unlock(&the_entry->lock);
                 }
