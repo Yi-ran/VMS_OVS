@@ -139,6 +139,8 @@ struct ListNode {
 	struct ListNode		*next;
 };
 
+//record  which channel the packet choose, used for packet loss recovery
+//assume the sender always sends packets in order except the retransmission packet. 
 struct SeqNode {
     u32 seq;
     u8 cid;
