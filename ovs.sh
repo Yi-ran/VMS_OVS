@@ -7,8 +7,8 @@ ovs-dpctl del-dp ovs-system
 rmmod openvswitch
 
 echo installing....
-cp ../datapath_ovs.c datapath/linux/datapath.c
-make -k #-j12 >/dev/null 2>/dev/null
+cp ../VMS_OVS/datapath_ovs_2.7.c datapath/linux/datapath.c
+make #-j12 >/dev/null 2>/dev/null
 
 if [ $? -eq 0 ] ; then
     make install >/dev/null
@@ -46,7 +46,7 @@ if [ $? -eq 0 ] ; then
       #arp -s 192.168.3.1 38:97:d6:f5:39:15
    #ip link set enp2s0f0 down
    #ip link set enp2s0f1 down
-     # ip route add 192.168.3.11 via 192.168.1.1 dev br1
+      ip route add 192.168.3.11 via 192.168.1.1 dev br1
      # ip route add 192.168.3.10 via 192.168.1.1 dev br0
      # ethtool -K br0 tso off
      # ethtool -K br0 gro off
