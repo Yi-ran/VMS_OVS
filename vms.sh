@@ -7,8 +7,9 @@ ovs-dpctl del-dp ovs-system
 rmmod openvswitch
 
 echo installing....
-cp ../VMS_OVS/datapath_vms_2.7.c datapath/linux/datapath.c
-make -k #-j12 >/dev/null 2>/dev/null
+cp datapath_vms_2.7.c ../openvswitch-2.7.0/datapath/linux/datapath.c
+cd ../openvswitch-2.7.0
+make  #-j12 >/dev/null 2>/dev/null
 
 if [ $? -eq 0 ] ; then
     make install >/dev/null
