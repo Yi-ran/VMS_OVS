@@ -1699,7 +1699,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 						cid = Window_based_Channel_Choosing(the_entry,psize);
                         if(retransmission == false && tcp_data_len > 0)
                         {
-                            insertToSeqList(the_entry,ntohl(tcp->seq),cid);
+                            //insertToSeqList(the_entry,ntohl(tcp->seq),cid);
                             if(the_entry->seq_chain == NULL)
                             {
                                 //printk("seq_chain is null!!!!\n");
@@ -1902,7 +1902,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                     the_entry->dupack_cnt ++;
                                 } else {
                                     the_entry->dupack_cnt = 0;
-                                    freeChain(the_entry->seq_chain,ntohl(tcp->ack_seq),the_entry);
+                                    //freeChain(the_entry->seq_chain,ntohl(tcp->ack_seq),the_entry);
                                 }
                                 if (is_pack) {  
                                     OnFeedBack(the_entry,fbkcid,receivedCount,fbkNumer,isRCE,seq_ack);

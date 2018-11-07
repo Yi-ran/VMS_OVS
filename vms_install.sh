@@ -1,6 +1,6 @@
 #!/bin/bash
 #source /etc/profile
-./boot.sh
+#./boot.sh
 ./configure --with-linux=/lib/modules/$(uname -r)/build
 echo installing....
 cp ../datapath_vmsintel.c datapath/linux/datapath.c
