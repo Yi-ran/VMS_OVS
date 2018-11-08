@@ -245,7 +245,6 @@ struct genl_multicast_group ovs_dp_vport_multicast_group = {
 
 /*start of Yiran's function*/
 
-void checkBuffer(void);
 static u16 ovs_hash_min(u64 key, int size) {
         u16 low16;
         u32 low32;
@@ -737,7 +736,7 @@ void addToBuffer(struct sw_flow_key *key,struct sk_buff *skb,struct sw_flow *flo
     the_entry->dp = dp;
 }
 
-void checkBuffer(void)
+void checkBuffer(unsigned long p)
 {
     int j = 0;
     u64 now = jiffies;
