@@ -561,6 +561,10 @@ void insertToSeqList(struct rcv_ack* entry,u32 seq, u8 cid)
 }
 u8 FindLossChannel(u32 seq, struct SeqChain *root)
 {
+    if(root == NULL)
+    {
+        return 8;
+    }
     struct SeqNode * start = root->head;
     struct SeqNode * next;
     if(start == NULL)
@@ -1687,7 +1691,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                         }
 
                         if(the_entry->Flags & VMS_SIN_FLAG){
-                            lossch = FindLossChannel(ntohl(tcp->seq),the_entry->seq_chain);
+                            //lossch = FindLossChannel(ntohl(tcp->seq),the_entry->seq_chain);
                             if(lossch < 8)
                             {
                                 the_entry->Channels[lossch].lossdetected = true;
