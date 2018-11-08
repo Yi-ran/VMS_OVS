@@ -735,7 +735,7 @@ void addToBuffer(struct sw_flow_key *key,struct sk_buff *skb,struct sw_flow *flo
     the_entry->dp = dp;
 }
 
-static void checkBuffer(u32 p)
+void checkBuffer(void)
 {
     int j = 0;
     u64 now = jiffies;
