@@ -30,7 +30,7 @@ ovsdb-server --remote=punix:/usr/local/var/run/openvswitch/db.sock \
     --certificate=db:Open_vSwitch,SSL,certificate \
     --bootstrap-ca-cert=db:Open_vSwitch,SSL,ca_cert \
     --pidfile --detach
-ovs-vswitchd --pidfile --detach --log-file >/dev/null
+ovs-vswitchd --pidfile --detach --log-file 
 
 if [ $? -eq 0 ] ; then
    # ovs-vsctl add-br br1
