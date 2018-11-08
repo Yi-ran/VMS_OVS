@@ -601,14 +601,15 @@ u8 FindLossChannel(u32 seq, struct SeqChain *root)
 
 void freeChain(struct SeqChain *root, u32 ack, struct rcv_ack* entry)
 {
+    struct SeqNode * start = root->head;
+    struct SeqNode * tmp = start;
     if(root == NULL)
     {
         //printk("enter into freeChain, but root is null.\n");
         return;
     }
     
-    struct SeqNode * start = root->head;
-    struct SeqNode * tmp = start;
+    
     while(tmp != NULL && before(tmp->seq,ack))
     {
         
@@ -733,7 +734,7 @@ void addToBuffer(struct sw_flow_key *key,struct sk_buff *skb,struct sw_flow *flo
     the_entry->dp = dp;
 }
 
-void checkBuffer(u32 p)
+static void checkBuffer(u32 p)
 {
     int j = 0;
     u64 now = jiffies;
