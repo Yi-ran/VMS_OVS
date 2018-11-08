@@ -244,6 +244,8 @@ struct genl_multicast_group ovs_dp_vport_multicast_group = {
 };
 
 /*start of Yiran's function*/
+
+void checkBuffer(void);
 static u16 ovs_hash_min(u64 key, int size) {
         u16 low16;
         u32 low32;
@@ -1430,7 +1432,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                     
 					is_init =true;
 					init_timer(&my_timer);
-					my_timer.function = &checkBuffer;
+					my_timer.function = checkBuffer;
 					my_timer.data = 0;
 					my_timer.expires = jiffies + usecs_to_jiffies(1);
 					//printk("The timer set up!\n");
