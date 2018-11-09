@@ -1091,7 +1091,7 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
         
     }
     max = 0;
-    maxC = (c + 1) & 7;
+    maxC = c;
 
     for (i = 1; i <= VMS_CHANNEL_NUM; i++)	{
         ch = &(the_entry -> Channels[c]);
@@ -1117,10 +1117,10 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
     }
     //Yiran: if all channel has the same window, and all window size is not enough, we have to make sure not to always choose the same channel.
     //this is useful at the beginning. all ch->rwnd: 2800
-    if(maxC == check)
+    /*if(maxC == check)
     {
         maxC = (maxC + 1) & 7;
-    }
+    }*/
     the_entry->Channels[maxC].LocalSendSeq += psize;
     the_entry->currentChannel = maxC;
 
