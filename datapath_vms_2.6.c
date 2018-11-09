@@ -77,13 +77,14 @@
 #define BRIDGE_NAME "br0" //help determine the direction of a packet, when we move to container, we only compare first 2 char
 #define OVS_PACK_HEADROOM 32
 #define MSS_DEFAULT 1400U
-#define TBL_SIZE 10U
+#define TBL_SIZE 12U
 //#define RWND_INIT 1400U
 #define RWND_INIT 2800U
 #define RWND_MIN (MSS)
 #define RWND_STEP (MSS)
 #define RWND_CLAMP (10*1000*1000*4/8) //4 means the maximal latency expected (4 msec), in bytes
-#define RWND_SSTHRESH_INIT ULONG_MAX
+//#define RWND_SSTHRESH_INIT ULONG_MAX
+#define RWND_SSTHRESH_INIT 0xFFFFFFFFUL
 #define DCTCP_ALPHA_INIT 1024U
 #define DCTCP_MAX_ALPHA  1024U
 static unsigned int MSS = MSS_DEFAULT;
@@ -559,6 +560,10 @@ void insertToSeqList(struct rcv_ack* entry,u32 seq, u8 cid)
 }
 u8 FindLossChannel(u32 seq, struct SeqChain *root)
 {
+    if(root == NULL)
+    {
+        return NULL;
+    }
     struct SeqNode * start = root->head;
     struct SeqNode * next;
     if(start == NULL)
@@ -1685,7 +1690,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                         }
 
                         if(the_entry->Flags & VMS_SIN_FLAG){
-                            lossch = FindLossChannel(ntohl(tcp->seq),the_entry->seq_chain);
+                            //lossch = FindLossChannel(ntohl(tcp->seq),the_entry->seq_chain);
                             if(lossch < 8)
                             {
                                 the_entry->Channels[lossch].lossdetected = true;
