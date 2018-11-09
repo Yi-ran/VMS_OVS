@@ -602,14 +602,16 @@ u8 FindLossChannel(u32 seq, struct SeqChain *root)
 
 void freeChain(struct SeqChain *root, u32 ack, struct rcv_ack* entry)
 {
+    struct SeqNode * start;
+    struct SeqNode * tmp;
     if(root == NULL)
     {
         //printk("enter into freeChain, but root is null.\n");
         return;
     }
+    start = root->head;
+    tmp = start;
     
-    struct SeqNode * start = root->head;
-    struct SeqNode * tmp = start;
     while(tmp != NULL && before(tmp->seq,ack))
     {
         
