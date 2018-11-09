@@ -7,8 +7,8 @@ ovs-dpctl del-dp ovs-system
 rmmod openvswitch
 
 echo installing....
-cp datapath_ovs_2.7.c ../openvswitch-2.7.0/datapath/linux/datapath.c
-cd ../openvswitch-2.7.0
+cp datapath_ovs_2.8.c ../openvswitch-2.8.0/datapath/linux/datapath.c
+cd ../openvswitch-2.8.0
 make #-j12 >/dev/null 2>/dev/null
 
 if [ $? -eq 0 ] ; then
@@ -40,7 +40,7 @@ if [ $? -eq 0 ] ; then
       ifconfig eno2 up
       #ip addr add 192.168.1.10/24 dev br0
       #ip addr add 192.168.1.11/24 dev br1
-      ip link set br0 up
+      #ip link set br0 up
       #ip link set br1 up
       #arp -s 192.168.3.1 11:11:11:11:11:22
       #arp -s 192.168.4.1 11:11:11:11:11:23
