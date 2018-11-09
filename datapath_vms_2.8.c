@@ -556,12 +556,14 @@ void insertToSeqList(struct rcv_ack* entry,u32 seq, u8 cid)
 }
 u8 FindLossChannel(u32 seq, struct SeqChain *root)
 {
+    struct SeqNode * start;
+    struct SeqNode * next;
     if(root == NULL)
     {
-        return NULL;
+        return 8;
     }
-    struct SeqNode * start = root->head;
-    struct SeqNode * next;
+    start = root->head;
+    
     if(start == NULL)
     {
         return 8;
