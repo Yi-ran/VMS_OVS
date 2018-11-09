@@ -37,10 +37,10 @@ if [ $? -eq 0 ] ; then
    # ovs-vsctl add-port br1 enp3s0f1
    # ovs-vsctl add-br br0
    # ovs-vsctl add-port br0 enp2s0f1
-      ifconfig eno2 up
+      #ifconfig eno2 up
       #ip addr add 192.168.1.10/24 dev br0
       #ip addr add 192.168.1.11/24 dev br1
-      #ip link set br0 up
+      ip link set br0 up
       #ip link set br1 up
       #arp -s 192.168.3.1 11:11:11:11:11:22
       #arp -s 192.168.4.1 11:11:11:11:11:23
