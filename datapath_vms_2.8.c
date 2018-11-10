@@ -1051,7 +1051,8 @@ u16 getTrueSrcPort(struct tcphdr * tcp)
 	u16 curPort = ntohs(tcp->source);
 	u16 port;
 	u8 curChannel = tcp->res1 >> 1;
-	port = ((curPort + curChannel) & 7) + ((curPort & (~ 7)));
+	//port = ((curPort + curChannel) & 7) + ((curPort & (~ 7)));
+    port = curPort - curChannel;
 	//printk("curChannel:%u\n",curChannel);
 	//printk("Get the true srcport: %u, destport:%u,\n",port,ntohs(tcp->dest));
 	return port;
@@ -1711,6 +1712,8 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 
                         //csum_replace2(&tcp->check,tcp->source, htons(((srcport - cid) & 7)+ ((srcport & (~7)))));
 						tcp->source = htons(((srcport - cid) & 7)+ ((srcport & (~7))));
+						//tcp->source = htons(((srcport - cid) & 7)+ ((srcport & (~7))));
+                        tcp->source = htons(srcport + cid);
                         //csum_replace2(&tcp->check, htons(tcp->res1 << 12), htons(tcp->res1 | (cid << 1) << 12));
                         tcp->res1 |= (cid << 1);
 						spin_unlock(&the_entry->lock);
