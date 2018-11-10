@@ -1711,7 +1711,6 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                         }
 
                         //csum_replace2(&tcp->check,tcp->source, htons(((srcport - cid) & 7)+ ((srcport & (~7)))));
-						tcp->source = htons(((srcport - cid) & 7)+ ((srcport & (~7))));
 						//tcp->source = htons(((srcport - cid) & 7)+ ((srcport & (~7))));
                         tcp->source = htons(srcport + cid);
                         //csum_replace2(&tcp->check, htons(tcp->res1 << 12), htons(tcp->res1 | (cid << 1) << 12));
