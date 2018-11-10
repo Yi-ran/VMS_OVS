@@ -1117,10 +1117,10 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
     }
     //Yiran: if all channel has the same window, and all window size is not enough, we have to make sure not to always choose the same channel.
     //this is useful at the beginning. all ch->rwnd: 2800
-    /*if(maxC == check)
+    if(maxC == check)
     {
         maxC = (maxC + 1) & 7;
-    }*/
+    }
     the_entry->Channels[maxC].LocalSendSeq += psize;
     the_entry->currentChannel = maxC;
 
@@ -1749,10 +1749,14 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 									fbkid = byte_entry->FEEDBACK;
 									n = 0;
 									RecevivedCount = byte_entry -> Channels[fbkid].receivedCount;
-									while(n < VMS_CHANNEL_NUM && byte_entry->Channels[fbkid].receivedCount <= 0)
+									while(n < VMS_CHANNEL_NUM)
 									{
-										byte_entry->FEEDBACK = (byte_entry->FEEDBACK + 1) & 7;
-										fbkid = byte_entry->FEEDBACK;
+                                        if(byte_entry->Channels[fbkid].receivedCount > 0)
+                                        {
+                                            byte_entry->FEEDBACK = (fbkid + 1) & 7;
+                                            break;
+                                        }
+										fbkid = (fbkid + 1) & 7;
 										RecevivedCount = byte_entry->Channels[fbkid].receivedCount;
 										n++;
 									}
