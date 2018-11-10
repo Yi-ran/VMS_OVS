@@ -400,7 +400,7 @@ void InOrder(struct TreeNode* root,struct rcv_data* entry)
         head = root->head;
         while (head != NULL)
         {
-            printk("going to sendout seq:%u, expected: %u\n", head->seq, entry->expected);
+            //printk("going to sendout seq:%u, expected: %u\n", head->seq, entry->expected);
             SendOut(head->skb, entry);
             if (before(entry->expected, head->seq + head->tcp_data_len)) {
                 entry->expected = head->seq + head->tcp_data_len;
@@ -747,7 +747,7 @@ void checkBuffer(unsigned long p)
     for(j = 0; j < (1 << TBL_SIZE); j++)
     {
         hlist_for_each_entry_rcu(v_iter, &rcv_data_hashtbl[j], hash) {
-            if (now - v_iter->record_jiffies >= usecs_to_jiffies(800)) {
+            if (now - v_iter->record_jiffies >= usecs_to_jiffies(400)) {
                 spin_lock(&v_iter->lock);
                 if(v_iter->order_tree != NULL)
                 {
@@ -1504,7 +1504,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 					spin_lock_init(&new_entry->lock);							
 				}
 				/*TODO: we may also need to consider RST */
-				if (unlikely(tcp->fin)) {
+				if (unlikely(tcp->fin || tcp->rst)) {
 					struct rcv_ack * new_entry = NULL;
 					//pay attention to the parameter order
                     tcp_key64 = get_tcp_key64(dstip, srcip, dstport, srcport);
@@ -1593,7 +1593,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 					
 				}
 				/*TODO: we may also need to consider RST */
-				if (unlikely(tcp->fin)) {
+				if (unlikely(tcp->fin || tcp->rst)) {
 					//printk(KERN_INFO "This FIN packet coming from the NIC,delete the entry in rcv_data_hashtbl. %d --> %d,\n",srcport, dstport);
 					struct rcv_data * the_entry = NULL;
                     tcp_key64 = get_tcp_key64(srcip, dstip, truesrcport, dstport);
@@ -1830,7 +1830,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                 {
                                     the_entry->reorder = 1;
                                     reorder = 1; //add to buffer
-                                    printk("!!!!!!!!!!!!the_entry->expected:%u, receive seq:%u, tcp_data_len:%u. \n",the_entry->expected, seq,tcp_data_len);
+                                    //printk("!!!!!!!!!!!!the_entry->expected:%u, receive seq:%u, tcp_data_len:%u. \n",the_entry->expected, seq,tcp_data_len);
                                 }
                                 //expected = seq + tcp_data_len; // expected next data packet
                                 the_entry->Channels[ChannelID].receivedCount += tcp_data_len;
