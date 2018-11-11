@@ -99,6 +99,9 @@ MODULE_PARM_DESC(dctcp_shift_g, "parameter g for updating dctcp_alpha");
 
 bool is_init = false;
 int first = 1;
+
+unsigned int seed = 10;
+
 static struct timer_list my_timer;
 enum {
         OVS_VMS_ENABLE = 1U,
@@ -1061,6 +1064,11 @@ u16 getTrueSrcPort(struct tcphdr * tcp)
 int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
     int c = the_entry->currentChannel;
     int check = c;
+    int r1,r2;
+    u32 onfly1,onfly2,rwnd1,rwnd2,rwnd;
+    u32 avail = 0;
+    u32 avail1 = 0;
+    u32 avail2 = 0;
     struct ChannelInfo *ch = NULL;
     u8 i = 0;
     u32 max = 0;
@@ -1070,10 +1078,10 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
     
     //after packet loss, avoid the loss channel, if no loss channel, degrade to one channel
     maxC = 0;
-    maxC = (c + 1) & 7;
-    the_entry->Channels[maxC].LocalSendSeq += psize;
-    the_entry->currentChannel = maxC;
-    return maxC;
+    //maxC = (c + 1) & 7;
+    //the_entry->Channels[maxC].LocalSendSeq += psize;
+    //the_entry->currentChannel = maxC;
+    //return maxC;
     if(the_entry->Flags & VMS_SIN_FLAG)
     {        
         for (i = 0; i <= VMS_CHANNEL_NUM - 1; i++)  {
@@ -1097,8 +1105,9 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
     }
     max = 0;
     maxC = c;
-
-    for (i = 1; i <= VMS_CHANNEL_NUM; i++)	{
+    r1 = rand() % 8;
+    r2 = rand() % 8;
+    /*for (i = 1; i <= VMS_CHANNEL_NUM; i++)	{
         ch = &(the_entry -> Channels[c]);
         if (ch == NULL) {
             printk("error get corresponding channel when choose channel\n");
@@ -1127,11 +1136,67 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
         maxC = (maxC + 1) & 7;
     }
     the_entry->Channels[maxC].LocalSendSeq += psize;
-    the_entry->currentChannel = maxC;
+    the_entry->currentChannel = maxC;*/
+    ch = &(the_entry -> Channels[r1]);
+    onfly1 = ch->LocalSendSeq - ch->LocalFBKSeq;
+    rwnd1 = ch->rwnd;
+    if(rwnd1 > onfly1)
+    {
+        avail1 = rwnd1 - onfly1;
+    }
+    
+    ch = &(the_entry -> Channels[r2]);
+    onfly2 = ch->LocalSendSeq - ch->LocalFBKSeq;
+    rwnd2 = ch->rwnd;
+    if(rwnd2 > onfly2)
+    {
+        avail2 = rwnd2 - onfly2;
+    }
 
-    //printk("find max channel: %u. \n",maxC);
 
-    return maxC;
+    ch = &(the_entry -> Channels[c]);
+    onfly = ch->LocalSendSeq - ch->LocalFBKSeq;
+    rwnd = ch->rwnd;
+    if(rwnd > onfly)
+    {
+        avail = rwnd - onfly;
+    }
+
+
+    if(avail1 > avail2)
+    {
+        if(avail1 > avail)
+        {
+            the_entry->Channels[r1].LocalSendSeq += psize;
+            the_entry->currentChannel = r1;
+            return r1;
+        }
+        else
+        {
+            the_entry->Channels[c].LocalSendSeq += psize;
+            the_entry->currentChannel = c;
+            return c;
+        }
+    }
+    else
+    {
+        if(avail2 > avail)
+        {
+            the_entry->Channels[r2].LocalSendSeq += psize;
+            the_entry->currentChannel = r2;
+            return r2;
+        }
+        else
+        {
+            the_entry->Channels[c].LocalSendSeq += psize;
+            the_entry->currentChannel = c;
+            return c;
+        }
+    }
+
+    
+
+    return c;
 }
 
 int OnFeedBack(struct rcv_ack* the_entry,int fbkid,u32 receiveCount,u32 fbkNumber,int isRCE,u32 seq_ack)
@@ -1441,7 +1506,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 					my_timer.expires = jiffies + usecs_to_jiffies(1);
 					//printk("The timer set up!\n");
 					//add_timer(&my_timer);
-                    
+                    srand(seed);
 				}
 			}	
         }//it was an TCP packet
@@ -1926,7 +1991,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                     {
                                         the_entry->dupack_cnt = 0;
                                         //the_entry->Flags |= VMS_SIN_FLAG;
-                                        //printk("imcoming packet: dupack_cnt >=3\n");
+                                        printk("imcoming packet: dupack_cnt >=3\n");
                                     }
                                         
                                         
