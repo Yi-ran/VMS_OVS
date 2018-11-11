@@ -1064,7 +1064,7 @@ u16 getTrueSrcPort(struct tcphdr * tcp)
 int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
     int c = the_entry->currentChannel;
     int check = c;
-    int r1,r2;
+    u16 r1,r2;
     u32 onfly1,onfly2,rwnd1,rwnd2,rwnd;
     u32 avail = 0;
     u32 avail1 = 0;
@@ -1105,8 +1105,18 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
     }
     max = 0;
     maxC = c;
-    r1 = rand() % 8;
-    r2 = rand() % 8;
+    get_random_bytes(&r1, sizeof(r1));
+    get_random_bytes(&r2, sizeof(r2));
+    r1 = r1 % 8;
+    if(r1 < 0)
+    {
+        r1 = 0;
+    }
+    r2 = r2 % 8;
+    if(r2 < 0)
+    {
+        r2 = 0;
+    }
     /*for (i = 1; i <= VMS_CHANNEL_NUM; i++)	{
         ch = &(the_entry -> Channels[c]);
         if (ch == NULL) {
@@ -1506,7 +1516,6 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 					my_timer.expires = jiffies + usecs_to_jiffies(1);
 					//printk("The timer set up!\n");
 					//add_timer(&my_timer);
-                    srand(seed);
 				}
 			}	
         }//it was an TCP packet
