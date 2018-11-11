@@ -1678,7 +1678,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                             //printk(KERN_INFO "packet size: %u. \n",ntohs(nh->tot_len));
                             //printk(KERN_INFO "retransmission packet. there is packet loss? ntohl(tcp->seq):%u, the_entry->snd_nxt: %u. \n",ntohl(tcp->seq),the_entry->snd_nxt);
                             //We consider a retransmission is caused by packet loss
-                            the_entry->Flags |= VMS_SIN_FLAG;
+                            //the_entry->Flags |= VMS_SIN_FLAG;
                             retransmission = true;
 
                         }
@@ -1858,8 +1858,8 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                             spin_lock(&ack_entry->lock);
                             if(tcp->ece)
                             {
-                                //printk("what?\n");
-                                ack_entry->Flags |= VMS_SIN_FLAG; 
+                                printk("what?\n");
+                                //ack_entry->Flags |= VMS_SIN_FLAG; 
                             }
                             spin_unlock(&ack_entry->lock);
                         }
@@ -1921,7 +1921,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                     if(the_entry->dupack_cnt >= 3)
                                     {
                                         the_entry->dupack_cnt = 0;
-                                        the_entry->Flags |= VMS_SIN_FLAG;
+                                        //the_entry->Flags |= VMS_SIN_FLAG;
                                         //printk("imcoming packet: dupack_cnt >=3\n");
                                     }
                                         
