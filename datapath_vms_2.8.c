@@ -1829,7 +1829,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                 else
                                 {
                                     the_entry->reorder = 1;
-                                    reorder = 1; //add to buffer
+                                    //reorder = 1; //add to buffer
                                     //printk("!!!!!!!!!!!!the_entry->expected:%u, receive seq:%u, tcp_data_len:%u. \n",the_entry->expected, seq,tcp_data_len);
                                 }
                                 //expected = seq + tcp_data_len; // expected next data packet
@@ -1935,7 +1935,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                     u16 enforce_win = the_entry->rwnd >> the_entry->snd_wscale;
                                     //printk("ntohs(tcp->window):%u,enforce_win:%u.\n",ntohs(tcp->window),enforce_win);
                                     /*csum_replace2(&tcp->check,tcp->window, htons(enforce_win));*/
-                                    //tcp->window = htons(enforce_win);
+                                    tcp->window = htons(enforce_win);
                                     //printk(KERN_INFO "update tcp->window %d\n", enforce_win);
                                 }
 
@@ -1976,7 +1976,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                 }
                 if(tcp->psh == 1)
                 {
-                    tcp->psh = 0;
+                    //tcp->psh = 0;
                 }
                 //if(skb_is_nonlinear(skb))
                     //skb_linearize(skb);
