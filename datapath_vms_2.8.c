@@ -1070,6 +1070,9 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
     
     //after packet loss, avoid the loss channel, if no loss channel, degrade to one channel
     maxC = 0;
+    the_entry->Channels[maxC].LocalSendSeq += psize;
+    the_entry->currentChannel = maxC;
+    return maxC;
     if(the_entry->Flags & VMS_SIN_FLAG)
     {        
         for (i = 0; i <= VMS_CHANNEL_NUM - 1; i++)  {
