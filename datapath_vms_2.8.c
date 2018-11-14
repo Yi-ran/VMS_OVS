@@ -1077,8 +1077,7 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
     u64 tmp = 0x100000000;
     
     //after packet loss, avoid the loss channel, if no loss channel, degrade to one channel
-    maxC = 0;
-    //maxC = (c + 1) & 7;
+    //maxC = c;
     //the_entry->Channels[maxC].LocalSendSeq += psize;
     //the_entry->currentChannel = maxC;
     //return maxC;
@@ -1104,7 +1103,7 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
         
     }
     max = 0;
-    maxC = c;
+    maxC = (c + 1) & 7;
     get_random_bytes(&r1, sizeof(r1));
     get_random_bytes(&r2, sizeof(r2));
     r1 = r1 % 8;
