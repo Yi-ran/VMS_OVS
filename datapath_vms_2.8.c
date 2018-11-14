@@ -1916,6 +1916,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                 if((nh->tos & OVS_ECN_MASK) == OVS_ECN_MASK)// receive a packet with ECN mark
                                 {
                                     the_entry->Channels[ChannelID].flags |= VMS_CHANNEL_RCE;
+                                    printk("marked ECN!\n");
                                 }
                                 else
                                 {
@@ -2000,7 +2001,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                     {
                                         the_entry->dupack_cnt = 0;
                                         //the_entry->Flags |= VMS_SIN_FLAG;
-                                        printk("imcoming packet: dupack_cnt >=3\n");
+                                        //printk("imcoming packet: dupack_cnt >=3\n");
                                     }
                                         
                                         
