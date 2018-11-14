@@ -1117,7 +1117,7 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
     {
         r2 = 0;
     }
-    /*for (i = 1; i <= VMS_CHANNEL_NUM; i++)	{
+    for (i = 1; i <= VMS_CHANNEL_NUM; i++)	{
         ch = &(the_entry -> Channels[c]);
         if (ch == NULL) {
             printk("error get corresponding channel when choose channel\n");
@@ -1146,8 +1146,9 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
         maxC = (maxC + 1) & 7;
     }
     the_entry->Channels[maxC].LocalSendSeq += psize;
-    the_entry->currentChannel = maxC;*/
-    ch = &(the_entry -> Channels[r1]);
+    the_entry->currentChannel = maxC;
+    return maxC;
+    /*ch = &(the_entry -> Channels[r1]);
     onfly1 = ch->LocalSendSeq - ch->LocalFBKSeq;
     rwnd1 = ch->rwnd;
     if(rwnd1 > onfly1)
@@ -1206,7 +1207,7 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
 
     
 
-    return c;
+    return c;*/
 }
 
 int OnFeedBack(struct rcv_ack* the_entry,int fbkid,u32 receiveCount,u32 fbkNumber,int isRCE,u32 seq_ack)
