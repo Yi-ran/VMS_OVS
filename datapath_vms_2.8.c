@@ -1104,7 +1104,7 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
     }
     max = 0;
     maxC = (c + 1) & 7;
-    get_random_bytes(&r1, sizeof(r1));
+    /*get_random_bytes(&r1, sizeof(r1));
     get_random_bytes(&r2, sizeof(r2));
     r1 = r1 % 8;
     if(r1 < 0)
@@ -1115,7 +1115,7 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
     if(r2 < 0)
     {
         r2 = 0;
-    }
+    }*/
     for (i = 1; i <= VMS_CHANNEL_NUM; i++)	{
         ch = &(the_entry -> Channels[c]);
         if (ch == NULL) {
