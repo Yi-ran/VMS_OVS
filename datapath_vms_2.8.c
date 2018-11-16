@@ -2077,8 +2077,9 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                 //Yiran's logic: imcoming packet, clear the mark
                 if ( (nh->tos & OVS_ECN_MASK) != OVS_ECN_ZERO && (tcp->res1 & OVS_VMS_ENABLE) == OVS_VMS_ENABLE )
                 {
-                    ipv4_change_dsfield(nh, 0, OVS_ECN_ZERO);
-                    printk("tos is not ECN_ZERO: %u, %u. \n",nh->tos & OVS_ECN_MASK,nh->tos);                  
+                    
+                    printk("tos is not ECN_ZERO: %u, %u. \n",nh->tos & OVS_ECN_MASK,nh->tos); 
+                    ipv4_change_dsfield(nh, 0, OVS_ECN_ZERO);                 
                     /*csum_replace2(&tcp->check, htons(tcp->res1 << 12), htons((tcp->res1 & 0) << 12));*/
                     tcp->res1 &= 0;
                 }
