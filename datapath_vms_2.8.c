@@ -2052,7 +2052,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                 tcp->res1 |= OVS_VMS_ENABLE;
                 if ( (nh->tos & OVS_ECN_MASK) == OVS_ECN_ZERO) {//get the last 2 bits 
                     ipv4_change_dsfield(nh, 0, OVS_ECN_ONE);
-                    printk("WoW!\n");
+                    //printk("WoW!\n");
                 }
                 if(tcp->psh == 1)
                 {
@@ -2071,7 +2071,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                 if ( (nh->tos & OVS_ECN_MASK) != OVS_ECN_ZERO && (tcp->res1 & OVS_VMS_ENABLE) == OVS_VMS_ENABLE )
                 {
                     ipv4_change_dsfield(nh, 0, OVS_ECN_ZERO);
-                    printk("tos is not ECN_ZERO !\n");                  
+                    //printk("tos is not ECN_ZERO: %u. \n",nh->tos & OVS_ECN_MASK);                  
                     /*csum_replace2(&tcp->check, htons(tcp->res1 << 12), htons((tcp->res1 & 0) << 12));*/
                     tcp->res1 &= 0;
                 }
@@ -2080,7 +2080,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                 {                    
                     /*csum_replace2(&tcp->check, htons(tcp->ece << 15), htons(0));*/
                     tcp->ece = 0;
-                    printk("tcp->ece is 1 !\n");
+                    //printk("tcp->ece is 1 !\n");
                 }
                 if(tcp->cwr)    //FBK
                 { 
