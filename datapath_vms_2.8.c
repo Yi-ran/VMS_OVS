@@ -1054,8 +1054,8 @@ u16 getTrueSrcPort(struct tcphdr * tcp)
 	u16 curPort = ntohs(tcp->source);
 	u16 port;
 	u8 curChannel = tcp->res1 >> 1;
-	//port = ((curPort + curChannel) & 7) + ((curPort & (~ 7)));
-    port = curPort - curChannel;
+	port = ((curPort + curChannel) & 7) + ((curPort & (~ 7)));
+    //port = curPort - curChannel;
 	//printk("curChannel:%u\n",curChannel);
 	//printk("Get the true srcport: %u, destport:%u,\n",port,ntohs(tcp->dest));
 	return port;
@@ -1077,7 +1077,7 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
     u64 tmp = 0x100000000;
     
     //after packet loss, avoid the loss channel, if no loss channel, degrade to one channel
-    maxC = 0;
+    /*maxC = 0;
     the_entry->Channels[maxC].LocalSendSeq += psize;
     the_entry->currentChannel = maxC;
     return maxC;
@@ -1101,7 +1101,7 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
         the_entry->currentChannel = maxC;
         return maxC;        
         
-    }
+    }*/
     max = 0;
     maxC = (c + 1) & 7;
     /*get_random_bytes(&r1, sizeof(r1));
@@ -1788,8 +1788,8 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                         }*/
 
                         //csum_replace2(&tcp->check,tcp->source, htons(((srcport - cid) & 7)+ ((srcport & (~7)))));
-						//tcp->source = htons(((srcport - cid) & 7)+ ((srcport & (~7))));
-                        tcp->source = htons(srcport + cid);
+						tcp->source = htons(((srcport - cid) & 7)+ ((srcport & (~7))));
+                        //tcp->source = htons(srcport + cid);
                         //csum_replace2(&tcp->check, htons(tcp->res1 << 12), htons(tcp->res1 | (cid << 1) << 12));
                         tcp->res1 |= (cid << 1);
 						spin_unlock(&the_entry->lock);
@@ -2013,7 +2013,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                     u16 enforce_win = the_entry->rwnd >> the_entry->snd_wscale;
                                     //printk("ntohs(tcp->window):%u,enforce_win:%u.\n",ntohs(tcp->window),enforce_win);
                                     /*csum_replace2(&tcp->check,tcp->window, htons(enforce_win));*/
-                                    //tcp->window = htons(enforce_win);
+                                    tcp->window = htons(enforce_win);
                                     //printk(KERN_INFO "update tcp->window %d\n", enforce_win);
                                 }
 
@@ -2051,11 +2051,10 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                 tcp->res1 |= OVS_VMS_ENABLE;
                 if ( (nh->tos & OVS_ECN_MASK) == OVS_ECN_ZERO) {//get the last 2 bits 
                     ipv4_change_dsfield(nh, 0, OVS_ECN_ONE);
-                    //printk("WoW!\n");
                 }
                 if(tcp->psh == 1)
                 {
-                    //tcp->psh = 0;
+                    tcp->psh = 0;
                 }
                 //if(skb_is_nonlinear(skb))
                     //skb_linearize(skb);
@@ -2070,7 +2069,6 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                 if ( (nh->tos & OVS_ECN_MASK) != OVS_ECN_ZERO && (tcp->res1 & OVS_VMS_ENABLE) == OVS_VMS_ENABLE )
                 {
                     
-                    //printk("tos is not ECN_ZERO: %u, %u. \n",nh->tos & OVS_ECN_MASK,nh->tos); 
                     ipv4_change_dsfield(nh, 0, OVS_ECN_ZERO);                 
                     /*csum_replace2(&tcp->check, htons(tcp->res1 << 12), htons((tcp->res1 & 0) << 12));*/
                     tcp->res1 &= 0;
