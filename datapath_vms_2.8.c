@@ -1077,7 +1077,7 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
     u64 tmp = 0x100000000;
     
     //after packet loss, avoid the loss channel, if no loss channel, degrade to one channel
-    maxC = 0;
+    /*maxC = 0;
     the_entry->Channels[maxC].LocalSendSeq += psize;
     the_entry->currentChannel = maxC;
     return maxC;
@@ -1101,7 +1101,7 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
         the_entry->currentChannel = maxC;
         return maxC;        
         
-    }
+    }*/
     max = 0;
     maxC = (c + 1) & 7;
     /*get_random_bytes(&r1, sizeof(r1));
@@ -1122,7 +1122,7 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
             printk("error get corresponding channel when choose channel\n");
             return -1;
         }
-        tmp += ch->LocalSendSeq - ch->LocalFBKSeq;
+        tmp = ch->LocalSendSeq - ch->LocalFBKSeq;
         onfly = (u32)tmp;
         if (onfly + psize <= ch->rwnd) {
             the_entry->Channels[c].LocalSendSeq += psize;
