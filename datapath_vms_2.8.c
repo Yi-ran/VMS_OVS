@@ -2013,7 +2013,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                     u16 enforce_win = the_entry->rwnd >> the_entry->snd_wscale;
                                     //printk("ntohs(tcp->window):%u,enforce_win:%u.\n",ntohs(tcp->window),enforce_win);
                                     /*csum_replace2(&tcp->check,tcp->window, htons(enforce_win));*/
-                                    tcp->window = htons(enforce_win);
+                                    //tcp->window = htons(enforce_win);
                                     //printk(KERN_INFO "update tcp->window %d\n", enforce_win);
                                 }
 
