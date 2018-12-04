@@ -1077,13 +1077,13 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
     u64 tmp = 0x100000000;
     
     //after packet loss, avoid the loss channel, if no loss channel, degrade to one channel
-    /*maxC = 0;
-    the_entry->Channels[maxC].LocalSendSeq += psize;
-    the_entry->currentChannel = maxC;
-    return maxC;
+    maxC = 0;
+    //the_entry->Channels[maxC].LocalSendSeq += psize;
+    //the_entry->currentChannel = maxC;
+    //return maxC;
     if(the_entry->Flags & VMS_SIN_FLAG)
     {        
-        for (i = 0; i <= VMS_CHANNEL_NUM - 1; i++)  {
+        /*for (i = 0; i <= VMS_CHANNEL_NUM - 1; i++)  {
             
             ch = &(the_entry -> Channels[i]);
             if(ch->lossdetected == true)
@@ -1096,12 +1096,12 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
                         max = ch->rwnd - onfly;
                         maxC = i;
             }  
-        }
+        }*/
         the_entry->Channels[maxC].LocalSendSeq += psize;
         the_entry->currentChannel = maxC;
         return maxC;        
         
-    }*/
+    }
     max = 0;
     maxC = (c + 1) & 7;
     /*get_random_bytes(&r1, sizeof(r1));
@@ -1755,7 +1755,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                             //printk(KERN_INFO "packet size: %u. \n",ntohs(nh->tot_len));
                             //printk(KERN_INFO "retransmission packet. there is packet loss? ntohl(tcp->seq):%u, the_entry->snd_nxt: %u. \n",ntohl(tcp->seq),the_entry->snd_nxt);
                             //We consider a retransmission is caused by packet loss
-                            //the_entry->Flags |= VMS_SIN_FLAG;
+                            the_entry->Flags |= VMS_SIN_FLAG;
                             retransmission = true;
 
                         }
@@ -1768,7 +1768,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                             //lossch = FindLossChannel(ntohl(tcp->seq),the_entry->seq_chain);
                             if(lossch < 8)
                             {
-                                the_entry->Channels[lossch].lossdetected = true;
+                                //the_entry->Channels[lossch].lossdetected = true;
                             }
                             else
                             {
