@@ -619,7 +619,7 @@ int Flowlet_based_Channel_Choosing(struct rcv_ack* the_entry){
     }
     else
     {      
-        printk("detect flowlet.\n");
+        //printk("detect flowlet.\n");
         for (i = 1; i <= VMS_CHANNEL_NUM; i++)  {
             ch = &(the_entry -> Channels[c]);
             if(ch && ch->CECount < min)
