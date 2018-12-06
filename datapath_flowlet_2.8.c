@@ -611,19 +611,19 @@ int Flowlet_based_Channel_Choosing(struct rcv_ack* the_entry){
     u64 now = jiffies;
     u32 min = 0xffffffff;
     u32 minc = c;
+    struct ChannelInfo *ch = NULL;
+    int i = 0;
     if(now - the_entry->timestamp <= usecs_to_jiffies(FLOWLETGAP))
     {
         the_entry->timestamp = now;
         return c;
     }
     else
-    {   
-        struct ChannelInfo *ch = NULL;
-        int i = 0;
+    {      
         printk("detect flowlet.\n");
         for (i = 1; i <= VMS_CHANNEL_NUM; i++)  {
             ch = &(the_entry -> Channels[c]);
-            if(ch->CECount < min)
+            if(ch && ch->CECount < min)
             {
                 min = ch->CECount;
                 minc = c;
@@ -1002,7 +1002,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 					
 				}
 				/*TODO: we may also need to consider RST */
-				if (unlikely(tcp->fin)) {
+				if (unlikely(tcp->fin) || unlikely(tcp->rst)) {
 					//printk(KERN_INFO "This FIN packet coming from the NIC,delete the entry in rcv_data_hashtbl. %d --> %d,\n",srcport, dstport);
 					struct rcv_data * the_entry = NULL;
                     tcp_key64 = get_tcp_key64(srcip, dstip, truesrcport, dstport);
@@ -1089,7 +1089,6 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 						u16 RecevivedCount = 0;
 						u32 FbkNumber;
 						u16 RCE = 0 ;
-						int n = 0;
 						//tcp_key64 calculated above
 						rcu_read_lock();
 						byte_entry = rcv_data_hashtbl_lookup(tcp_key64);
@@ -1101,17 +1100,10 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 							rcu_read_unlock();
 							if(likely(the_entry))
 							{
-                                
+                                //round robin feedback
 								fbkid = byte_entry->FEEDBACK;
-								n = 0;
-								RecevivedCount = byte_entry -> Channels[fbkid].receivedCount;
-								while(n < VMS_CHANNEL_NUM)
-								{
-										byte_entry->FEEDBACK = (byte_entry->FEEDBACK + 1) & 7;
-										fbkid = byte_entry->FEEDBACK;
-										RecevivedCount = byte_entry->Channels[fbkid].receivedCount;
-										n++;
-								}
+                                RecevivedCount = byte_entry -> Channels[fbkid].receivedCount;
+                                byte_entry->FEEDBACK = (fbkid + 1) & 7;
 								FbkNumber = byte_entry->Channels[fbkid].LocalRecvSeq;
                                 RCE = byte_entry->Channels[fbkid].flags & VMS_CHANNEL_RCE;
                                 

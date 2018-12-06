@@ -1392,7 +1392,6 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 					u16 psize;
 					u32 end_seq;
 					struct rcv_ack * the_entry = NULL;
-                    bool retransmission =  false;
 					//printk(KERN_INFO "This packet is outgoing, choose channel and update.(%d --> %d)\n",srcport, dstport);
 					tcp_data_len = ntohs(nh->tot_len) - (nh->ihl << 2) - (tcp->doff << 2);
 					psize = tcp_data_len;
@@ -1402,38 +1401,8 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 					the_entry = rcv_ack_hashtbl_lookup(tcp_key64);
 					if (likely(the_entry)) {
 						spin_lock(&the_entry->lock);
-                        //add by Yiran 2017 11 11: we only choose channel for data packets
-                        
-                        if(tcp_data_len > 0 && before(end_seq,the_entry->snd_nxt))
-                        {
-                            //printk(KERN_INFO "packet size: %u. \n",ntohs(nh->tot_len));
-                            //printk(KERN_INFO "retransmission packet. there is packet loss? ntohl(tcp->seq):%u, the_entry->snd_nxt: %u. \n",ntohl(tcp->seq),the_entry->snd_nxt);
-                            //We consider a retransmission is caused by packet loss
-                            //the_entry->Flags |= VMS_SIN_FLAG;
-                            retransmission = true;
-
-                        }
-                        else if(tcp_data_len > 0 && (after(end_seq,the_entry->snd_nxt) || (end_seq == the_entry->snd_nxt)))
-                        {
-                            the_entry->snd_nxt = end_seq;
-                        }
-
-                        if(the_entry->Flags & VMS_SIN_FLAG){
-                            //lossch = FindLossChannel(ntohl(tcp->seq),the_entry->seq_chain);
-                            if(lossch < 8)
-                            {
-                                //the_entry->Channels[lossch].lossdetected = true;
-                            }
-                            else
-                            {
-                                //printk("We don't find the channel has loss packet");
-                            }
-
-                        }
 						//cid = Window_based_Channel_Choosing(the_entry,psize);
                         cid = Roundrobin_Channel_Choosing(the_entry);
-                        
-
                         //csum_replace2(&tcp->check,tcp->source, htons(((srcport - cid) & 7)+ ((srcport & (~7)))));
 						tcp->source = htons(((srcport - cid) & 7)+ ((srcport & (~7))));
                         //tcp->source = htons(srcport + cid);
@@ -1442,81 +1411,6 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 						spin_unlock(&the_entry->lock);
 					}
 					rcu_read_unlock();
-					/*third task, may 1)pack ecn info into a PACK*/		
-					if (tcp->ack) {
-//						printk("return ack:%u\n", ntohl(tcp->ack_seq));
-						struct rcv_data * byte_entry = NULL;
-						u16 fbkid;
-						u16 RecevivedCount = 0;
-						u32 FbkNumber;
-						u16 RCE = 0 ;
-						int n = 0;
-						//tcp_key64 calculated above
-						rcu_read_lock();
-						byte_entry = rcv_data_hashtbl_lookup(tcp_key64);
-						rcu_read_unlock();
-						if (likely(byte_entry)) {
-							//printk("begin process:outgoing ack:%u.  seq: %u \n",ntohl(tcp->ack_seq),ntohl(tcp->seq));
-							spin_lock(&byte_entry->lock);
-							//byte_entry->expected = ntohl(tcp->ack_seq);
-							rcu_read_lock();
-							the_entry = rcv_ack_hashtbl_lookup(tcp_key64);
-							rcu_read_unlock();
-							if(likely(the_entry))
-							{
-                                //Yiran: detect packet loss
-								if(the_entry->Flags & VMS_SIN_FLAG)
-								{
-									fbkid = 0;
-									RecevivedCount = byte_entry->Channels[fbkid].receivedCount;
-								}
-								else
-								{
-									fbkid = byte_entry->FEEDBACK;
-									n = 0;
-									RecevivedCount = byte_entry -> Channels[fbkid].receivedCount;
-									while(n < VMS_CHANNEL_NUM)
-									{
-                                        if(byte_entry->Channels[fbkid].receivedCount > 0)
-                                        {
-                                            byte_entry->FEEDBACK = (fbkid + 1) & 7;
-                                            break;
-                                        }
-										fbkid = (fbkid + 1) & 7;
-										RecevivedCount = byte_entry->Channels[fbkid].receivedCount;
-										n++;
-									}
-									//printk("packing channel:%u,RecevivedCount:%u\n",fbkid,RecevivedCount);
-								}
-								FbkNumber = byte_entry->Channels[fbkid].LocalRecvSeq;
-								RCE = byte_entry->Channels[fbkid].flags & VMS_CHANNEL_RCE;
-                                if (RCE == 0) {
-                                    //printk("no rce feedback\n");
-                                }
-							}
-
-                            //Yiran: only pure acks piggyback, to avoid packet length exceeding MTU
-                            
-							/*if(RecevivedCount > 0 && tcp_data_len < 1400 )
-							{
-								int err;
-								err = ovs_pack_FBK_info(skb,RecevivedCount,FbkNumber,RCE,fbkid);
-								byte_entry->Channels[fbkid].flags &= (~VMS_CHANNEL_RCE);
-								if (err)
-								{
-									printk(KERN_INFO "warning, packing feedback info error! outgoing ack:%u.\n",ntohl(tcp->ack_seq));
-								}
-								else 
-								{									
-									byte_entry->Channels[fbkid].receivedCount = 0;
-								}
-							}*/	
-							
-							spin_unlock(&byte_entry->lock);
-
-						}	
-					}
-
 
 				}//end processing outgoing skb
                 else {
@@ -1541,31 +1435,11 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                             spin_lock(&the_entry->lock);
                             if(tcp_data_len > 0)
                             {
-                                if(the_entry->expected == seq && the_entry->reorder == 0) //in-order packets
-                                {
-                                    the_entry->expected = seq + tcp_data_len;
-                                    //printk("update the_entry->expected:%u, seq:%u, tcp_data_len:%u. \n",the_entry->expected, seq,tcp_data_len);
-
-                                }
-                                else
-                                {
-                                    the_entry->reorder = 1;
-                                    //reorder = 1; //add to buffer
-                                    //printk("!!!!!!!!!!!!the_entry->expected:%u, receive seq:%u, tcp_data_len:%u. \n",the_entry->expected, seq,tcp_data_len);
-                                }
-                                //expected = seq + tcp_data_len; // expected next data packet
-                                the_entry->Channels[ChannelID].receivedCount += tcp_data_len;
-                                the_entry->Channels[ChannelID].LocalRecvSeq += tcp_data_len;
                                 if((nh->tos & OVS_ECN_MASK) == OVS_ECN_MASK)// receive a packet with ECN mark
                                 {
                                     the_entry->Channels[ChannelID].flags |= VMS_CHANNEL_RCE;
                                     printk("marked ECN!\n");
-                                }
-                                else
-                                {
-                                    //printk("receive not ce packet.\n");
-                                    the_entry->Channels[ChannelID].flags &= VMS_CHANNEL_RCE_CLEAR;
-                                }					 
+                                }				 
                             }
                             spin_unlock(&the_entry->lock);
                         }
@@ -1591,21 +1465,13 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                         //  ii) run VJ congestion control algorithm and DCTCP logic
                         if (tcp->ack) {
                             struct rcv_ack * the_entry = NULL;
-                            bool is_pack = false;
-                            u32 fbkNumer = 0;
-                            u32 receivedCount = 0;
                             u32 acked = 0;
-                            u8 isRCE = 0;
-                            u8 fbkcid = 0;
-
-                            
                             rcu_read_lock();
                             the_entry = rcv_ack_hashtbl_lookup(tcp_key64);
                             rcu_read_unlock();
 
                             if (likely(the_entry)) {
                                 spin_lock(&the_entry->lock);
-
                                 acked = ntohl(tcp->ack_seq) - the_entry->snd_una;
                                 the_entry->snd_una = ntohl(tcp->ack_seq);
                                 if (acked == 0 && before(the_entry->snd_una,the_entry->snd_nxt) && (tcp_data_len == 0)) {
@@ -1620,13 +1486,10 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                     if(the_entry->dupack_cnt >= 3)
                                     {
                                         the_entry->dupack_cnt = 0;
-                                        //the_entry->Flags |= VMS_SIN_FLAG;
                                         //printk("imcoming packet: dupack_cnt >=3\n");
-                                    }
-                                        
+                                    }        
                                         
                                 }
-
                                 spin_unlock(&the_entry->lock);
 
                             }
@@ -1649,47 +1512,26 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
       a few more lines of code
      */
     //struct sk_buff *newskb = NULL;
-    struct rcv_data * the_entry = NULL;
     if(ntohs(skb->protocol) == ETH_P_IP)
     {
         nh = ip_hdr(skb);
         if(nh->protocol == IPPROTO_TCP) {//this is an TCP packet
             tcp = tcp_hdr(skb);
-            if (ovs_packet_to_net(skb)) {// outgoing to the NIC, enable VMS and ECN
+            if (ovs_packet_to_net(skb)) {// outgoing to the NIC, enable VMS 
                 /*csum_replace2(&tcp->check, htons(tcp->res1 << 12), htons((tcp->res1 | OVS_VMS_ENABLE) << 12));*/
                 tcp->res1 |= OVS_VMS_ENABLE;
-                if ( (nh->tos & OVS_ECN_MASK) == OVS_ECN_ZERO) {//get the last 2 bits 
-                    ipv4_change_dsfield(nh, 0, OVS_ECN_ONE);
-                }
-                if(tcp->psh == 1)
-                {
-                    //tcp->psh = 0;
-                }
             }
             else {
                 //Yiran's logic: imcoming packet, clear the mark
-                if ( (nh->tos & OVS_ECN_MASK) != OVS_ECN_ZERO && (tcp->res1 & OVS_VMS_ENABLE) == OVS_VMS_ENABLE )
+                if ((tcp->res1 & OVS_VMS_ENABLE) == OVS_VMS_ENABLE )
                 {
                     
                     //ipv4_change_dsfield(nh, 0, OVS_ECN_ZERO);                 
                     /*csum_replace2(&tcp->check, htons(tcp->res1 << 12), htons((tcp->res1 & 0) << 12));*/
                     tcp->res1 &= 0;
-                }
+                } 
 
-                if (tcp->ece)   //SIN
-                {                    
-                    /*csum_replace2(&tcp->check, htons(tcp->ece << 15), htons(0));*/
-                    //tcp->ece = 0;
-                    //printk("tcp->ece is 1 !\n");
-                }
-                if(tcp->cwr)    //FBK
-                { 
-                    /*csum_replace2(&tcp->check, htons(tcp->cwr << 15), htons(0));*/
-                    //tcp->cwr = 0;
-                }
-                
-
-                rcu_read_lock();
+                /*rcu_read_lock();
                 the_entry = rcv_data_hashtbl_lookup(key64);
                 tmp_entry = the_entry;
                 rcu_read_unlock();
@@ -1698,7 +1540,6 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                 {
                     
                     spin_lock(&the_entry->lock);
-                    //newskb = skb;
                     if(skb != NULL)
                     {
                         addToBuffer(key, skb, flow, dp, the_entry);
@@ -1709,7 +1550,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                         printk("add to buffer failure!.\n");
                     }
                     spin_unlock(&the_entry->lock);
-                }
+                }*/
             }
             
         }//it was an TCP packet
