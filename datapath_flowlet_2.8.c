@@ -98,7 +98,6 @@ MODULE_PARM_DESC(dctcp_shift_g, "parameter g for updating dctcp_alpha");
 
 bool is_init = false;
 int first = 1;
-static struct timer_list my_timer;
 //static unsigned int FEEDBACK = 0;
 enum {
         OVS_VMS_ENABLE = 1U,
@@ -1085,9 +1084,9 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 					/*third task, may 1)pack ecn info into a PACK*/		
 					if (tcp->ack) {
 						struct rcv_data * byte_entry = NULL;
-						u16 fbkid;
+						u16 fbkid=0;
 						u16 RecevivedCount = 0;
-						u32 FbkNumber;
+						u32 FbkNumber=0;
 						u16 RCE = 0 ;
 						//tcp_key64 calculated above
 						rcu_read_lock();
@@ -3452,6 +3451,10 @@ error:
 
 static void dp_cleanup(void)
 {
+
+    /*Yiran's logic*/
+    __hashtbl_exit();
+    /*Yiran's logic*/
 	dp_unregister_genl(ARRAY_SIZE(dp_genl_families));
 	ovs_netdev_exit();
 	unregister_netdevice_notifier(&ovs_dp_device_notifier);
