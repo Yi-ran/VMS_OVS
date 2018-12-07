@@ -485,7 +485,7 @@ static int ovs_pack_FBK_info(struct sk_buff * skb, u32 ReceivedCount, u32 fbkNum
 
     //set FBK = 1 
 
-    tcp->cwr = 1;
+    tcp->res1 |= OVS_VMS_ENABLE;
     //when offload checksum
     skb->csum_start = skb->csum_start - 8;
     tcp->check = ~tcp_v4_check(skb->len - header_len + 20, nh->saddr, nh->daddr, 0);
@@ -869,10 +869,10 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
             tcp = tcp_hdr(skb);
             // Yiran: outgoing to the NIC, the first syn packet, enable CLOVE
             if (tcp->syn && ovs_packet_to_net(skb)) {
-                tcp->res1 |= OVS_VMS_ENABLE;
-                if ((nh->tos & OVS_ECN_MASK) == OVS_ECN_ZERO) {
-                    ipv4_change_dsfield(nh, 0, OVS_ECN_ONE);					
-                }
+                //tcp->res1 |= OVS_VMS_ENABLE;
+                //if ((nh->tos & OVS_ECN_MASK) == OVS_ECN_ZERO) {
+                    //ipv4_change_dsfield(nh, 0, OVS_ECN_ONE);					
+                //}
 
             }
 			
@@ -949,7 +949,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 			}//it was outgoing SYN/FIN
 			else { 
 				//Yiran's logic: for incoming tcp traffic, we only process VMS enable packet
-				if (likely(tcp->res1 & OVS_VMS_ENABLE)) {
+				//if (likely(tcp->res1 & OVS_VMS_ENABLE)) {
 					u16 truesrcport = getTrueSrcPort(tcp);
 					tcp->source = htons(truesrcport);
 					key->tp.src = tcp->source;
@@ -958,7 +958,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 					struct rcv_data * new_entry = NULL;
 					struct rcv_ack * ack_entry2 = NULL;
 
-                    ipv4_change_dsfield(nh, 0, OVS_ECN_ZERO);
+                    //ipv4_change_dsfield(nh, 0, OVS_ECN_ZERO);
                     
 					tcp_key64 = get_tcp_key64(srcip, dstip, truesrcport, dstport);
 					rcu_read_lock();
@@ -1016,7 +1016,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 						//printk(KERN_INFO "rcv_data_hashtbl try to delete but entry not found.	%d --> %d\n", srcport, dstport);
 					}	
 				}
-				}//VMS enable packets	
+				//}//VMS enable packets	
 			}//incoming to the host traffic
 				
 		}//is TCP packet
@@ -1133,7 +1133,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 				}//end processing outgoing skb
                 else {
                     // processing incoming (to the end host) skbs
-                    if(likely(tcp -> res1 & OVS_VMS_ENABLE)){
+                    //if(likely(tcp -> res1 & OVS_VMS_ENABLE)){
                         int tcp_data_len;
                         struct rcv_data * the_entry = NULL;
                         struct rcv_ack * ack_entry = NULL;
@@ -1154,11 +1154,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                 if((nh->tos & OVS_ECN_MASK) == OVS_ECN_MASK)// receive a packet with ECN mark
                                 {
                                     the_entry->Channels[ChannelID].flags |= VMS_CHANNEL_RCE;
-                                }
-                                /*else
-                                {
-                                    the_entry->Channels[ChannelID].flags &= VMS_CHANNEL_RCE_CLEAR;
-                                }*/				 
+                                }			 
                             }
                             spin_unlock(&the_entry->lock);
                         }
@@ -1166,11 +1162,6 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                         rcu_read_lock();
                         ack_entry = rcv_ack_hashtbl_lookup(tcp_key64);
                         rcu_read_unlock();
-
-                        
-                        //second, if it is an ACK, 
-                        //   i) update "snd_una" in "rcv_ack"
-                        //  ii) run VJ congestion control algorithm and DCTCP logic
                         if (tcp->ack) {
                             struct rcv_ack * the_entry = NULL;
                             bool is_pack = false;
@@ -1180,17 +1171,15 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                             u8 isRCE = 0;
                             u8 fbkcid = 0;
 
-                            //Yiran's logic : PACK  FBK ---->CWR
-                            if (tcp->cwr) {
+                            //Yiran's logic : PACK  FBK ---->VMS
+                            if (tcp -> res1 & OVS_VMS_ENABLE) {
                                 int err;
                                 is_pack = true;
                                 err = ovs_unpack_FBK_info(skb, &fbkNumer, &receivedCount,&isRCE,&fbkcid);
-                                //printk("ovs_unpack_FBK_info:fbkNumer:%u,receivedCount:%u,isRCE:%u,fbkcid:%u.\n",fbkNumer,receivedCount,isRCE,fbkcid);
                                 if (err){
                                     printk(KERN_INFO "warning, unpack packet error\n");
                                     is_pack = false;
 				    			}
-								//printk("unpack: srcip:%u,dstip:%u,srcport:%u,destport:%u,isRCE:%u,FbkNmber:%u,fbkcid:%u.\n",srcip,dstip,srcport,dstport,isRCE,fbkNumer,fbkcid);
                                 nh = ip_hdr(skb);
                                 tcp = tcp_hdr(skb);
 
@@ -1217,10 +1206,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 
                         }
 
-
-
-
-                    }	
+                    //}	
                 }
             }//end processing incoming SKB
         }//it was an TCP skb
@@ -1239,32 +1225,23 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
         if(nh->protocol == IPPROTO_TCP) {//this is an TCP packet
             tcp = tcp_hdr(skb);
             if (ovs_packet_to_net(skb)) {// outgoing to the NIC, enable VMS and ECN
-                tcp->res1 |= OVS_VMS_ENABLE;
-                if ( (nh->tos & OVS_ECN_MASK) == OVS_ECN_ZERO) {//get the last 2 bits 
-                    ipv4_change_dsfield(nh, 0, OVS_ECN_ONE);
-                }
-                if(tcp->psh == 1)
-                {
-                    tcp->psh = 0;
-                }
+                //tcp->res1 |= OVS_VMS_ENABLE;
+                //if ( (nh->tos & OVS_ECN_MASK) == OVS_ECN_ZERO) {//get the last 2 bits 
+                    //ipv4_change_dsfield(nh, 0, OVS_ECN_ONE);
+                //}
             }
             else {
                 //Yiran's logic: imcoming packet, clear the mark
-                if ( (nh->tos & OVS_ECN_MASK) != OVS_ECN_ZERO && (tcp->res1 & OVS_VMS_ENABLE) == OVS_VMS_ENABLE )
-                {
-                    ipv4_change_dsfield(nh, 0, OVS_ECN_ZERO);                  
-                    /*csum_replace2(&tcp->check, htons(tcp->res1 << 12), htons((tcp->res1 & 0) << 12));*/
-                    tcp->res1 &= 0;
-                }
+                tcp->res1 &= 0;
                 if (tcp->ece)   //SIN
                 {                    
                     /*csum_replace2(&tcp->check, htons(tcp->ece << 15), htons(0));*/
-                    tcp->ece = 0;
+                    //tcp->ece = 0;
                 }
                 if(tcp->cwr)    //FBK
                 { 
                     /*csum_replace2(&tcp->check, htons(tcp->cwr << 15), htons(0));*/
-                    tcp->cwr = 0;
+                    //tcp->cwr = 0;
                 }
                 
             }
