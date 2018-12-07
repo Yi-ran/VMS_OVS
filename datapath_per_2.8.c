@@ -855,11 +855,11 @@ u16 getTrueSrcPort(struct tcphdr * tcp)
 
 int Roundrobin_Channel_Choosing(struct rcv_ack* the_entry){
     int c = the_entry->currentChannel;
-    uint8_t maxc = (c + 1) & 7
+    uint8_t maxc = (c + 1) & 7;
     
     //the_entry->Channels[maxc].LocalSendSeq += psize;
     the_entry->currentChannel = maxc;
-    return maxC;        
+    return maxc;        
     
 }
 
