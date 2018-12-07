@@ -1438,7 +1438,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                 if((nh->tos & OVS_ECN_MASK) == OVS_ECN_MASK)// receive a packet with ECN mark
                                 {
                                     the_entry->Channels[ChannelID].flags |= VMS_CHANNEL_RCE;
-                                    printk("marked ECN!\n");
+                                    //printk("marked ECN!\n");
                                 }				 
                             }
                             spin_unlock(&the_entry->lock);
@@ -1454,7 +1454,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                             spin_lock(&ack_entry->lock);
                             if(tcp->ece)
                             {
-                                printk("what?\n");
+                                //printk("what?\n");
                                 //ack_entry->Flags |= VMS_SIN_FLAG; 
                             }
                             spin_unlock(&ack_entry->lock);
