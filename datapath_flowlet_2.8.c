@@ -613,13 +613,13 @@ int Flowlet_based_Channel_Choosing(struct rcv_ack* the_entry){
     u32 temp = the_entry->currentChannel;
     struct ChannelInfo *ch = NULL;
     int i = 0;
-    //if(now - the_entry->timestamp <= usecs_to_jiffies(FLOWLETGAP))
-    //{
-        //the_entry->timestamp = now;
-        //return c;
-    //}
-    //else
-    //{      
+    if(now - the_entry->timestamp <= usecs_to_jiffies(FLOWLETGAP))
+    {
+        the_entry->timestamp = now;
+        return c;
+    }
+    else
+    {      
         //printk("detect flowlet.\n");
         for (i = 1; i <= VMS_CHANNEL_NUM; i++)  {
             ch = &(the_entry -> Channels[c]);
@@ -635,7 +635,7 @@ int Flowlet_based_Channel_Choosing(struct rcv_ack* the_entry){
             minc = (minc + 1) & 7;
         }
 
-    //}
+    }
     the_entry->currentChannel = minc;
     return minc;
 }
@@ -653,7 +653,7 @@ int OnFeedBack(struct rcv_ack* the_entry,int fbkid,u32 receiveCount,u32 fbkNumbe
     ch->LocalFBKSeq = fbkNumber;
     if(isRCE == 1) {
         ch->CECount ++;
-        printk("receive feedback isRCE > 0. CECount:%u.\n",ch->CECount);
+        //printk("receive feedback isRCE > 0. CECount:%u.\n",ch->CECount);
     } 
     if(before(the_entry->MileStone,seq_ack)||the_entry->MileStone==seq_ack)
     {   
