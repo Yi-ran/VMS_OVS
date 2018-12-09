@@ -632,7 +632,7 @@ int Flowlet_based_Channel_Choosing(struct rcv_ack* the_entry){
         }
         if(minc == temp)
         {
-            minc = (minc + 1) & 7;
+            //minc = (minc + 1) & 7;
         }
 
     }
