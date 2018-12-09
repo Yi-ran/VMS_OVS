@@ -659,7 +659,7 @@ int OnFeedBack(struct rcv_ack* the_entry,int fbkid,u32 receiveCount,u32 fbkNumbe
         for(i = 0;i < VMS_CHANNEL_NUM ;i++)
         {
             ch = &(the_entry->Channels[i]);
-            ch->CECount = 0;
+            //ch->CECount = 0;
             
         }
         the_entry->MileStone = the_entry->snd_nxt + 1;
