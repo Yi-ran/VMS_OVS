@@ -610,6 +610,7 @@ int Flowlet_based_Channel_Choosing(struct rcv_ack* the_entry){
     u64 now = jiffies;
     u32 min = 0xffffffff;
     u32 minc = c;
+    u32 temp = the_entry->currentChannel;
     struct ChannelInfo *ch = NULL;
     int i = 0;
     if(now - the_entry->timestamp <= usecs_to_jiffies(FLOWLETGAP))
@@ -629,7 +630,7 @@ int Flowlet_based_Channel_Choosing(struct rcv_ack* the_entry){
             }
             c = (c + 1) & 7;
         }
-        if(minc == the_entry->currentChannel)
+        if(minc == temp)
         {
             minc = (minc + 1) & 7;
         }
