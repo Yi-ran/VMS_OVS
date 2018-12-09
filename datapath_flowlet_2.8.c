@@ -72,7 +72,7 @@
 #include <linux/timer.h>
 
 
-#define FLOWLETGAP 200
+#define FLOWLETGAP 400
 #define BRIDGE_NAME "br0" //help determine the direction of a packet, when we move to container, we only compare first 2 char
 #define OVS_PACK_HEADROOM 32
 #define MSS_DEFAULT 1500U
@@ -653,6 +653,7 @@ int OnFeedBack(struct rcv_ack* the_entry,int fbkid,u32 receiveCount,u32 fbkNumbe
     ch->LocalFBKSeq = fbkNumber;
     if(isRCE == 1) {
         ch->CECount ++;
+        printk("receive feedback isRCE > 0. CECount:%u.\n",ch->CECount);
     } 
     if(before(the_entry->MileStone,seq_ack)||the_entry->MileStone==seq_ack)
     {   
