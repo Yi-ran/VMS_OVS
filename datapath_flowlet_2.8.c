@@ -609,7 +609,7 @@ int Flowlet_based_Channel_Choosing(struct rcv_ack* the_entry){
     int c = the_entry->currentChannel;
     u64 now = jiffies;
     u32 min = 0xffffffff;
-    u32 minc = c;
+    uint8_t minc = c;
     u32 temp = the_entry->currentChannel;
     struct ChannelInfo *ch = NULL;
     int i = 0;
@@ -876,9 +876,9 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
             // Yiran: outgoing to the NIC, the first syn packet, enable CLOVE
             if (tcp->syn && ovs_packet_to_net(skb)) {
                 //tcp->res1 |= OVS_VMS_ENABLE;
-                //if ((nh->tos & OVS_ECN_MASK) == OVS_ECN_ZERO) {
-                    //ipv4_change_dsfield(nh, 0, OVS_ECN_ONE);					
-                //}
+                if ((nh->tos & OVS_ECN_MASK) == OVS_ECN_ZERO) {
+                    ipv4_change_dsfield(nh, 0, OVS_ECN_ONE);					
+                }
 
             }
 			
@@ -964,7 +964,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 					struct rcv_data * new_entry = NULL;
 					struct rcv_ack * ack_entry2 = NULL;
 
-                    //ipv4_change_dsfield(nh, 0, OVS_ECN_ZERO);
+                    ipv4_change_dsfield(nh, 0, OVS_ECN_ZERO);
                     
 					tcp_key64 = get_tcp_key64(srcip, dstip, truesrcport, dstport);
 					rcu_read_lock();
@@ -1232,9 +1232,9 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
             tcp = tcp_hdr(skb);
             if (ovs_packet_to_net(skb)) {// outgoing to the NIC, enable VMS and ECN
                 //tcp->res1 |= OVS_VMS_ENABLE;
-                //if ( (nh->tos & OVS_ECN_MASK) == OVS_ECN_ZERO) {//get the last 2 bits 
-                    //ipv4_change_dsfield(nh, 0, OVS_ECN_ONE);
-                //}
+                if ( (nh->tos & OVS_ECN_MASK) == OVS_ECN_ZERO) {//get the last 2 bits 
+                    ipv4_change_dsfield(nh, 0, OVS_ECN_ONE);
+                }
             }
             else {
                 //Yiran's logic: imcoming packet, clear the mark
