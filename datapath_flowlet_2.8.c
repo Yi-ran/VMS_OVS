@@ -72,7 +72,7 @@
 #include <linux/timer.h>
 
 
-#define FLOWLETGAP 400
+#define FLOWLETGAP 200
 #define BRIDGE_NAME "br0" //help determine the direction of a packet, when we move to container, we only compare first 2 char
 #define OVS_PACK_HEADROOM 32
 #define MSS_DEFAULT 1500U
