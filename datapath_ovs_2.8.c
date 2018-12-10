@@ -61,7 +61,18 @@
 #include "vport-internal_dev.h"
 #include "vport-netdev.h"
 
+
+#include <linux/skbuff.h>
+#include <net/tcp.h>
+
 unsigned int ovs_net_id __read_mostly;
+
+
+enum {
+        OVS_ECN_ZERO = 0U,
+        OVS_ECN_ONE = 1U, 
+        OVS_ECN_MASK = 3U,
+};
 
 static struct genl_family dp_packet_genl_family;
 static struct genl_family dp_flow_genl_family;
@@ -265,8 +276,21 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 	struct dp_stats_percpu *stats;
 	u64 *stats_counter;
 	u32 n_mask_hit;
+	struct iphdr *nh;
+    struct tcphdr * tcp;
 
 	stats = this_cpu_ptr(dp->stats_percpu);
+
+	if(ntohs(skb->protocol) == ETH_P_IP) {//this is an IP packet
+        nh = ip_hdr(skb);
+        if(nh->protocol == IPPROTO_TCP) {//this is an TCP packet
+            tcp = tcp_hdr(skb);
+            //Yiran: if not support ECN, enable ECN. get the last two bits			
+            if ((nh->tos & OVS_ECN_MASK) == OVS_ECN_ZERO) {
+                    ipv4_change_dsfield(nh, 0, OVS_ECN_ONE);					
+                }		
+        }//it was an TCP packet
+    }//it was an IP packet
 
 	/* Look up flow. */
 	flow = ovs_flow_tbl_lookup_stats(&dp->table, key, skb_get_hash(skb),
