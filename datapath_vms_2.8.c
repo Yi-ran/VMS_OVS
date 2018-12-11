@@ -2054,7 +2054,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                 }
                 if(tcp->psh == 1)
                 {
-                    //tcp->psh = 0;
+                    tcp->psh = 0;
                 }
                 //if(skb_is_nonlinear(skb))
                     //skb_linearize(skb);
