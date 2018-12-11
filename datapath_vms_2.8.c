@@ -2125,13 +2125,13 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
         ovs_execute_actions(dp, skb, sf_acts, key);
     } else {
         
-        /*if (tmp_entry != NULL) {
+        if (tmp_entry != NULL) {
             spin_lock(&tmp_entry->lock);
             if (tmp_entry->order_tree != NULL) {
                 BufferDump(tmp_entry->order_tree, tmp_entry);
             }
             spin_unlock(&tmp_entry->lock);
-        }*/
+        }
     }
 
     stats_counter = &stats->n_hit;
