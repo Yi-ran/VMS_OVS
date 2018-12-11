@@ -1503,7 +1503,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 
             }
 			
-			if(likely(tcp->res1 & OVS_VMS_ENABLE))
+			/*if(likely(tcp->res1 & OVS_VMS_ENABLE))
 			{
                 //Yiran: start the timer for reorder buffer
 				if(is_init == false)
@@ -1517,7 +1517,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 					//printk("The timer set up!\n");
 					//add_timer(&my_timer);
 				}
-			}	
+			}*/	
         }//it was an TCP packet
     }//it was an IP packet
 
@@ -2054,7 +2054,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                 }
                 if(tcp->psh == 1)
                 {
-                    tcp->psh = 0;
+                    //tcp->psh = 0;
                 }
                 //if(skb_is_nonlinear(skb))
                     //skb_linearize(skb);
@@ -4309,7 +4309,7 @@ error:
 static void dp_cleanup(void)
 {
 	/*Yiran's logic*/
-	del_timer_sync(&my_timer);
+	//del_timer_sync(&my_timer);
 	__hashtbl_exit();
 	/*Yiran's logic*/
 	dp_unregister_genl(ARRAY_SIZE(dp_genl_families));
