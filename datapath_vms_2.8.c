@@ -1503,7 +1503,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 
             }
 			
-			/*if(likely(tcp->res1 & OVS_VMS_ENABLE))
+			if(likely(tcp->res1 & OVS_VMS_ENABLE))
 			{
                 //Yiran: start the timer for reorder buffer
 				if(is_init == false)
@@ -1515,9 +1515,9 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 					my_timer.data = 0;
 					my_timer.expires = jiffies + usecs_to_jiffies(1);
 					//printk("The timer set up!\n");
-					//add_timer(&my_timer);
+					add_timer(&my_timer);
 				}
-			}*/	
+			}
         }//it was an TCP packet
     }//it was an IP packet
 
@@ -1900,6 +1900,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                 if(the_entry->expected == seq /*&& the_entry->reorder == 0*/) //in-order packets
                                 {
                                     the_entry->expected = seq + tcp_data_len;
+                                    the_entry->reorder = 0;
                                     //printk("update the_entry->expected:%u, seq:%u, tcp_data_len:%u. \n",the_entry->expected, seq,tcp_data_len);
 
                                 }
@@ -2094,10 +2095,10 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 
                 rcu_read_lock();
                 the_entry = rcv_data_hashtbl_lookup(key64);
-                tmp_entry = the_entry;
+                //tmp_entry = the_entry;
                 rcu_read_unlock();
                 //reorder = 1;
-                if(likely(the_entry) && reorder == 1)
+                if(likely(the_entry) && the_entry->reorder == 1)
                 {
                     
                     spin_lock(&the_entry->lock);
@@ -2121,17 +2122,22 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 
     ovs_flow_stats_update(flow, key->tp.flags, skb);
     sf_acts = rcu_dereference(flow->sf_acts);
-    if(reorder == 0) {
+    if(likely(the_entry) && the_entry->reorder == 0) {
         ovs_execute_actions(dp, skb, sf_acts, key);
-    } else {
+    } else if (likely(the_entry) && the_entry->reorder == 1){
         
-        /*if (tmp_entry != NULL) {
-            spin_lock(&tmp_entry->lock);
-            if (tmp_entry->order_tree != NULL) {
-                BufferDump(tmp_entry->order_tree, tmp_entry);
+        if (the_entry != NULL) {
+            spin_lock(&the_entry->lock);
+            if (the_entry->order_tree != NULL) {
+                BufferDump(the_entry->order_tree, the_entry);
             }
-            spin_unlock(&tmp_entry->lock);
-        }*/
+            the_entry->reorder == 0;
+            spin_unlock(&the_entry->lock);
+        }
+    }
+    else
+    {
+        ovs_execute_actions(dp, skb, sf_acts, key);
     }
 
     stats_counter = &stats->n_hit;
@@ -4309,7 +4315,7 @@ error:
 static void dp_cleanup(void)
 {
 	/*Yiran's logic*/
-	//del_timer_sync(&my_timer);
+	del_timer_sync(&my_timer);
 	__hashtbl_exit();
 	/*Yiran's logic*/
 	dp_unregister_genl(ARRAY_SIZE(dp_genl_families));
