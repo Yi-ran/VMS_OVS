@@ -1515,7 +1515,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 					my_timer.data = 0;
 					my_timer.expires = jiffies + usecs_to_jiffies(1);
 					//printk("The timer set up!\n");
-					//add_timer(&my_timer);
+					add_timer(&my_timer);
 				}
 			}	
         }//it was an TCP packet
@@ -1897,7 +1897,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                             spin_lock(&the_entry->lock);
                             if(tcp_data_len > 0)
                             {
-                                if(the_entry->expected == seq && the_entry->reorder == 0) //in-order packets
+                                if(the_entry->expected == seq /*&& the_entry->reorder == 0*/) //in-order packets
                                 {
                                     the_entry->expected = seq + tcp_data_len;
                                     //printk("update the_entry->expected:%u, seq:%u, tcp_data_len:%u. \n",the_entry->expected, seq,tcp_data_len);
@@ -1905,7 +1905,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                 }
                                 else
                                 {
-                                    the_entry->reorder = 1;
+                                    //the_entry->reorder = 1;
                                     //reorder = 1; //add to buffer
                                     //printk("!!!!!!!!!!!!the_entry->expected:%u, receive seq:%u, tcp_data_len:%u. \n",the_entry->expected, seq,tcp_data_len);
                                 }
@@ -1915,7 +1915,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                 if((nh->tos & OVS_ECN_MASK) == OVS_ECN_MASK)// receive a packet with ECN mark
                                 {
                                     the_entry->Channels[ChannelID].flags |= VMS_CHANNEL_RCE;
-                                    printk("marked ECN!\n");
+                                    //printk("marked ECN!\n");
                                 }
                                 else
                                 {
@@ -2096,7 +2096,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                 the_entry = rcv_data_hashtbl_lookup(key64);
                 tmp_entry = the_entry;
                 rcu_read_unlock();
-
+                reorder = 1;
                 if(likely(the_entry) && reorder == 1)
                 {
                     
@@ -2125,13 +2125,13 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
         ovs_execute_actions(dp, skb, sf_acts, key);
     } else {
         
-        /*if (tmp_entry != NULL) {
+        if (tmp_entry != NULL) {
             spin_lock(&tmp_entry->lock);
             if (tmp_entry->order_tree != NULL) {
                 BufferDump(tmp_entry->order_tree, tmp_entry);
             }
             spin_unlock(&tmp_entry->lock);
-        }*/
+        }
     }
 
     stats_counter = &stats->n_hit;
