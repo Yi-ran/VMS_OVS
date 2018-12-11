@@ -1515,7 +1515,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 					my_timer.data = 0;
 					my_timer.expires = jiffies + usecs_to_jiffies(1);
 					//printk("The timer set up!\n");
-					add_timer(&my_timer);
+					//add_timer(&my_timer);
 				}
 			}	
         }//it was an TCP packet
@@ -1906,7 +1906,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                 else
                                 {
                                     the_entry->reorder = 1;
-                                    reorder = 1; //add to buffer
+                                    //reorder = 1; //add to buffer
                                     //printk("!!!!!!!!!!!!the_entry->expected:%u, receive seq:%u, tcp_data_len:%u. \n",the_entry->expected, seq,tcp_data_len);
                                 }
                                 //expected = seq + tcp_data_len; // expected next data packet
@@ -2125,13 +2125,13 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
         ovs_execute_actions(dp, skb, sf_acts, key);
     } else {
         
-        if (tmp_entry != NULL) {
+        /*if (tmp_entry != NULL) {
             spin_lock(&tmp_entry->lock);
             if (tmp_entry->order_tree != NULL) {
                 BufferDump(tmp_entry->order_tree, tmp_entry);
             }
             spin_unlock(&tmp_entry->lock);
-        }
+        }*/
     }
 
     stats_counter = &stats->n_hit;
