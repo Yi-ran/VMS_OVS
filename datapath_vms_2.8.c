@@ -750,7 +750,7 @@ void checkBuffer(unsigned long p)
     for(j = 0; j < (1 << TBL_SIZE); j++)
     {
         hlist_for_each_entry_rcu(v_iter, &rcv_data_hashtbl[j], hash) {
-            if (now - v_iter->record_jiffies >= usecs_to_jiffies(400)) {
+            if (now - v_iter->record_jiffies >= usecs_to_jiffies(200)) {
                 spin_lock(&v_iter->lock);
                 if(v_iter->order_tree != NULL)
                 {
@@ -1515,7 +1515,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 					my_timer.data = 0;
 					my_timer.expires = jiffies + usecs_to_jiffies(1);
 					//printk("The timer set up!\n");
-					//add_timer(&my_timer);
+					add_timer(&my_timer);
 				}
 			}	
         }//it was an TCP packet
@@ -1906,7 +1906,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                 else
                                 {
                                     the_entry->reorder = 1;
-                                    //reorder = 1; //add to buffer
+                                    reorder = 1; //add to buffer
                                     //printk("!!!!!!!!!!!!the_entry->expected:%u, receive seq:%u, tcp_data_len:%u. \n",the_entry->expected, seq,tcp_data_len);
                                 }
                                 //expected = seq + tcp_data_len; // expected next data packet
