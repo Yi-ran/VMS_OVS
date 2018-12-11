@@ -2131,7 +2131,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
             if (the_entry->order_tree != NULL) {
                 BufferDump(the_entry->order_tree, the_entry);
             }
-            the_entry->reorder == 0;
+            the_entry->reorder = 0;
             spin_unlock(&the_entry->lock);
         }
     }
