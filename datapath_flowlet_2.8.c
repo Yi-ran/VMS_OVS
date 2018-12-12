@@ -167,6 +167,7 @@ struct rcv_ack {
 
 struct ChannelInfo {
     u32 receivedCount;
+    u32 CECount;
     u32 rwnd;           
     u32 rwnd_ssthresh;
     u32 rwnd_clamp;
@@ -209,6 +210,7 @@ struct rcv_ack {
     u32 MileStone;
     u8 Flags;
     u8 currentChannel;
+    u64 timestamp;  //time of arrival of last packet
     //for packet loss
     struct SeqChain *seq_chain;
 
@@ -1110,7 +1112,9 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 						new_entry->key = tcp_key64;
 						rcv_ack_hashtbl_insert(tcp_key64, new_entry);
                         //printk("Outgoing SYN, insert in rcv_ack_hashbtl, src %u-->dest %u.\n",srcport,dstport);    						
-					}	
+					}
+                    new_entry->rwnd = RWND_INIT;
+                    new_entry->rwnd_clamp = RWND_CLAMP;	
 					new_entry->snd_una = ntohl(tcp->seq);      //LastACK
 					new_entry->snd_nxt = ntohl(tcp->seq) + 1;  //SYN takes 1 byte
 					new_entry->next_seq = new_entry->snd_nxt;
@@ -1125,9 +1129,14 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 						new_entry->Channels[index].receivedCount = 0;
 						new_entry->Channels[index].flags = 0;
                         new_entry->Channels[index].CECount = 0;
+                        new_entry->Channels[index].rwnd = RWND_INIT;
+                        new_entry->Channels[index].rwnd_ssthresh = RWND_SSTHRESH_INIT;//infinite
+                        new_entry->Channels[index].alpha = DCTCP_ALPHA_INIT;
 					}
 					new_entry->currentChannel = 0;
                     new_entry->timestamp = jiffies;
+                    new_entry->dupack_cnt = 0;
+                    new_entry->Flags = 0;
 					spin_lock_init(&new_entry->lock);							
 				}
 				/*TODO: we may also need to consider RST */
@@ -1171,7 +1180,11 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 						spin_lock(&new_entry->lock);
                         //printk("insert entry in rcv_data_hashtbl.expected:%u.\n",new_entry->expected);
                         new_entry->FEEDBACK = 0;
-						
+						new_entry->reorder = 0;
+                        new_entry->skey = NULL;
+                        new_entry->dp = dp;
+                        new_entry->flow = NULL;
+                        new_entry->order_tree = NULL;
 						for(index = 0 ; index < VMS_CHANNEL_NUM ; index ++)
 						{
 							new_entry->Channels[index].RttSize = 0;
@@ -1182,6 +1195,9 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 							new_entry->Channels[index].receivedCount = 0;
 							new_entry->Channels[index].flags = 0;
                             new_entry->Channels[index].CECount = 0;
+                            new_entry->Channels[index].rwnd = RWND_INIT;
+                            new_entry->Channels[index].rwnd_ssthresh = RWND_SSTHRESH_INIT;//infinite
+                            new_entry->Channels[index].alpha = DCTCP_ALPHA_INIT;
 						}
 						spin_unlock(&new_entry->lock);
 					}
