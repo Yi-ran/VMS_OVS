@@ -1080,9 +1080,9 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
     
     //after packet loss, avoid the loss channel, if no loss channel, degrade to one channel
     //maxC = 0;
-    the_entry->Channels[maxC].LocalSendSeq += psize;
-    the_entry->currentChannel = maxC;
-    return maxC;
+    //the_entry->Channels[maxC].LocalSendSeq += psize;
+    //the_entry->currentChannel = maxC;
+    //return maxC;
     if(the_entry->Flags & VMS_SIN_FLAG)
     {        
         /*for (i = 0; i <= VMS_CHANNEL_NUM - 1; i++)  {
@@ -1124,7 +1124,7 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
             printk("error get corresponding channel when choose channel\n");
             return -1;
         }
-        tmp = ch->LocalSendSeq - ch->LocalFBKSeq;
+        tmp += ch->LocalSendSeq - ch->LocalFBKSeq;
         onfly = (u32)tmp;
         if (onfly + psize <= ch->rwnd) {
             the_entry->Channels[c].LocalSendSeq += psize;
@@ -1841,7 +1841,6 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 										RecevivedCount = byte_entry->Channels[fbkid].receivedCount;
 										n++;
 									}
-									//printk("packing channel:%u,RecevivedCount:%u\n",fbkid,RecevivedCount);
 								}
 								FbkNumber = byte_entry->Channels[fbkid].LocalRecvSeq;
 								RCE = byte_entry->Channels[fbkid].flags & VMS_CHANNEL_RCE;
@@ -2016,7 +2015,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                     u16 enforce_win = the_entry->rwnd >> the_entry->snd_wscale;
                                     //printk("ntohs(tcp->window):%u,enforce_win:%u.\n",ntohs(tcp->window),enforce_win);
                                     /*csum_replace2(&tcp->check,tcp->window, htons(enforce_win));*/
-                                    //tcp->window = htons(enforce_win);
+                                    tcp->window = htons(enforce_win);
                                     //printk(KERN_INFO "update tcp->window %d\n", enforce_win);
                                 }
 
