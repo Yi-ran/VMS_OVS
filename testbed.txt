@@ -42,7 +42,7 @@ l3 egress add port= mac= intf=
 #添加l3多接口 intf是前面添加的l3 egress的编号
 l3 multipath add size= intf0= intf1= intf2= intf3=
 
-#配置三层路由表 如果是ecmp的路由，intf是l3对应multipath的编号
+#配置l3路由表 如果是ecmp的路由，intf是l3对应multipath的编号
 l3 defip add ip= mask= ecmp=1 intf=
 
 #开启ECN
