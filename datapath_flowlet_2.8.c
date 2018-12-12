@@ -604,8 +604,76 @@ u16 getTrueSrcPort(struct tcphdr * tcp)
     
     return port;
 }
-
 int Flowlet_based_Channel_Choosing(struct rcv_ack* the_entry){
+    int c = the_entry->currentChannel;
+    int check = c;
+    u16 r1,r2;
+    struct ChannelInfo *ch = NULL;
+    u8 i = 0;
+    u32 max = 0;
+    int maxC = (c + 1) & 7;
+    u32 onfly = 0;
+    u64 tmp = 0x100000000;
+    
+    //after packet loss, avoid the loss channel, if no loss channel, degrade to one channel
+    maxC = 0;
+    //the_entry->Channels[maxC].LocalSendSeq += psize;
+    //the_entry->currentChannel = maxC;
+    //return maxC;
+    if(the_entry->Flags & VMS_SIN_FLAG)
+    {        
+        /*for (i = 0; i <= VMS_CHANNEL_NUM - 1; i++)  {
+            
+            ch = &(the_entry -> Channels[i]);
+            if(ch->lossdetected == true)
+            {
+                continue;
+            }               
+            tmp += ch->LocalSendSeq - ch->LocalFBKSeq;
+            onfly = (u32)tmp;               
+            if (max <= ch->rwnd - onfly) {
+                        max = ch->rwnd - onfly;
+                        maxC = i;
+            }  
+        }*/
+        the_entry->Channels[maxC].LocalSendSeq += psize;
+        the_entry->currentChannel = maxC;
+        return maxC;        
+        
+    }
+    max = 0;
+    maxC = (c + 1) & 7;
+    for (i = 1; i <= VMS_CHANNEL_NUM; i++)  {
+        ch = &(the_entry -> Channels[c]);
+        if (ch == NULL) {
+            printk("error get corresponding channel when choose channel\n");
+            return -1;
+        }
+        tmp = ch->LocalSendSeq - ch->LocalFBKSeq;
+        onfly = (u32)tmp;
+        if (onfly + psize <= ch->rwnd) {
+            the_entry->Channels[c].LocalSendSeq += psize;
+            the_entry->currentChannel = c; 
+            return c;
+        } else {
+            if (max <= ch->rwnd - onfly) {
+                max = ch->rwnd - onfly;
+                maxC = c;
+            }
+        }
+        c = (c + 1) & 7;
+    }
+    //Yiran: if all channel has the same window, and all window size is not enough, we have to make sure not to always choose the same channel.
+    //this is useful at the beginning. all ch->rwnd: 2800
+    if(maxC == check)
+    {
+        //maxC = (maxC + 1) & 7;
+    }
+    the_entry->Channels[maxC].LocalSendSeq += psize;
+    the_entry->currentChannel = maxC;
+    return maxC;
+}
+/*int Flowlet_based_Channel_Choosing(struct rcv_ack* the_entry){
     int c = the_entry->currentChannel;
     u64 now = jiffies;
     u32 min = 0xffffffff;
@@ -638,9 +706,9 @@ int Flowlet_based_Channel_Choosing(struct rcv_ack* the_entry){
     }
     the_entry->currentChannel = minc;
     return minc;
-}
+}*/
 
-int OnFeedBack(struct rcv_ack* the_entry,int fbkid,u32 receiveCount,u32 fbkNumber,int isRCE,u32 seq_ack)
+/*int OnFeedBack(struct rcv_ack* the_entry,int fbkid,u32 receiveCount,u32 fbkNumber,int isRCE,u32 seq_ack)
 {
     struct ChannelInfo *ch = NULL;
     int i = 0;
@@ -665,6 +733,79 @@ int OnFeedBack(struct rcv_ack* the_entry,int fbkid,u32 receiveCount,u32 fbkNumbe
         }
         the_entry->MileStone = the_entry->snd_nxt + 1;
         //printk("this is one RTT.\n");
+    }
+    return 0;
+}*/
+int OnFeedBack(struct rcv_ack* the_entry,int fbkid,u32 receiveCount,u32 fbkNumber,int isRCE,u32 seq_ack)
+{
+    struct ChannelInfo *ch = NULL;
+    u64 adder = 0;
+    u64 sum = 0;
+    int i = 0;
+    ch = &(the_entry->Channels[fbkid]);
+
+    if(ch == NULL)
+    {
+        printk("Error to get the corresponding channel in OnFeedBack()\n");
+        return 1;
+    }
+    if (receiveCount > 0) {
+        //printk("receiveCount:%u:%u\n",receiveCount, fbkid);
+        ch->LocalFBKSeq = fbkNumber;
+        ch->RttSize += receiveCount;
+        if(isRCE == 0) {
+            if(ch->rwnd < ch->rwnd_ssthresh) {
+                adder = receiveCount >> 1;
+            } else {
+                if(the_entry->Flags & VMS_SIN_FLAG) {
+                    adder = ((MSS * receiveCount) >> 1) / ch->rwnd; 
+                } else {
+                    adder = ((MSS * receiveCount) >> 1 >> 3) / ch->rwnd; 
+                }
+            }
+            if (adder < 1) {
+                adder = 1;
+            }
+            ch->rwnd += adder;
+            if (ch->rwnd > 20000000) {
+                ch->rwnd = 20000000;
+            }
+            the_entry->rwnd += adder;
+        } else {
+            //printk("RCE==1!.fbkid:%u.\n",fbkid);
+            ch->RttCESize += receiveCount;
+            ch->rwnd_ssthresh = ch->rwnd >> 1;
+            if (ch->rwnd_ssthresh < 2800)
+            {
+                ch->rwnd_ssthresh = 2800;
+            }
+        }
+    }
+
+
+    if(before(the_entry->MileStone,seq_ack)||the_entry->MileStone==seq_ack)
+    {
+        sum = 0;
+        for(i = 0;i< VMS_CHANNEL_NUM ;i++)
+        {
+            ch = &(the_entry->Channels[i]);
+            // alpha = (1 - g) * alpha + g * F 
+            if(ch->RttCESize > 0 && ch->RttSize > 0)
+            {
+                ch->alpha = ch->alpha - (ch->alpha >> dctcp_shift_g) + (ch->RttCESize << (10U - dctcp_shift_g)) / ch->RttSize;
+                ch->rwnd = max(ch->rwnd - ((ch->rwnd * ch->alpha) >> 11U), RWND_MIN);
+            } else {
+                ch->alpha = ch->alpha - (ch->alpha >> dctcp_shift_g);
+            }
+
+            ch->RttCESize = 0;
+            ch->RttSize = 0;    
+            sum += ch->rwnd;
+            //printk("%u: ch->rwnd:%u; ch->alpha:%u.\n", i, ch->rwnd, ch->alpha);
+        }
+        the_entry->rwnd = sum;
+        //("sum:%u.\n",sum);
+        the_entry->MileStone = the_entry->snd_nxt + 1;
     }
     return 0;
 }
@@ -1080,6 +1221,10 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 					the_entry = rcv_ack_hashtbl_lookup(tcp_key64);
 					if (likely(the_entry)) {
 						spin_lock(&the_entry->lock);
+                        if(tcp_data_len > 0 && (after(end_seq,the_entry->snd_nxt) || (end_seq == the_entry->snd_nxt)))
+                        {
+                            the_entry->snd_nxt = end_seq;
+                        }
                         //choose new channel when flowlet emerge
 						cid = Flowlet_based_Channel_Choosing(the_entry);
 						tcp->source = htons(((srcport - cid) & 7)+ ((srcport & (~7))));

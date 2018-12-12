@@ -61,6 +61,7 @@
 #include "vport-internal_dev.h"
 #include "vport-netdev.h"
 
+
 /*start of Yiran's structure*/
 #include <linux/hashtable.h>
 #include <linux/skbuff.h>
@@ -69,20 +70,18 @@
 #include <linux/param.h>
 #include <net/tcp.h>
 #include <linux/timer.h>
-#define NONE 0
-#define LEFT 1
-#define RIGHT 2
+
+
+#define FLOWLETGAP 400
 #define BRIDGE_NAME "br0" //help determine the direction of a packet, when we move to container, we only compare first 2 char
 #define OVS_PACK_HEADROOM 32
-#define MSS_DEFAULT 1400U
+#define MSS_DEFAULT 1500U
 #define TBL_SIZE 12U
 //#define RWND_INIT 1400U
 #define RWND_INIT 2800U
 #define RWND_MIN (MSS)
 #define RWND_STEP (MSS)
-#define RWND_CLAMP (10*1000*1000*4/8) //4 means the maximal latency expected (4 msec), in bytes
-//#define RWND_SSTHRESH_INIT ULONG_MAX
-#define RWND_SSTHRESH_INIT 0xFFFFFFFFUL
+#define RWND_SSTHRESH_INIT ULONG_MAX
 #define DCTCP_ALPHA_INIT 1024U
 #define DCTCP_MAX_ALPHA  1024U
 static unsigned int MSS = MSS_DEFAULT;
@@ -99,10 +98,7 @@ MODULE_PARM_DESC(dctcp_shift_g, "parameter g for updating dctcp_alpha");
 
 bool is_init = false;
 int first = 1;
-
-unsigned int seed = 10;
-
-static struct timer_list my_timer;
+//static unsigned int FEEDBACK = 0;
 enum {
         OVS_VMS_ENABLE = 1U,
         OVS_VMS_CLEAR = 14U,
@@ -134,65 +130,20 @@ FBK  -------> CWR
 SIN  -------> ECE
 */
 
-struct ListNode {
-	u32 seq;
-	u32 tcp_data_len;
-	struct sk_buff  *skb;
-	struct ListNode		*next;
-};
-
-//record  which channel the packet choose, used for packet loss recovery
-//assume the sender always sends packets in order except the retransmission packet. 
-struct SeqNode {
-    u32 seq;
-    u8 cid;
-    struct SeqNode     *next;
-};
-
-struct SeqChain
-{
-    struct SeqNode *head;
-    struct SeqNode *tail;
-};
-
-
-
-typedef struct TreeNode
-{
-    struct ListNode        *head;
-    struct ListNode        *tail;
-    struct TreeNode        *left;
-    struct TreeNode        *right;
-    struct TreeNode	       *parent;
-    u8 type;
-}*pnode;
-
 struct ChannelInfo {
-	u32 receivedCount;
-	u32 rwnd;			
-	u32 rwnd_ssthresh;
-	u32 rwnd_clamp;
-	u32 alpha;
-	u32 LocalSendSeq;
-	u32 LocalRecvSeq;
-	u32 LocalFBKSeq;
-	u32 RttSize;
-	u32 RttCESize;	
-	u16 flags;
-    bool lossdetected;
+    u32 receivedCount;
+    u32 CECount;
+    u32 LocalSendSeq;
+    u32 LocalRecvSeq;
+    u32 LocalFBKSeq;
+    u32 RttSize;
+    u32 RttCESize;  
+    u16 flags;
 };
 
 struct rcv_data {
     u64 key; //key of a flow, {LOW16(srcip), LOW16(dstip), tcpsrc, tcpdst}
-	u8 reorder;// identifying whether this flow is out-of-order
-	u64 record_jiffies;
     u8 FEEDBACK;
-	struct sw_flow_key *skey;
-	struct datapath *dp ;
-	struct sw_flow *flow;
-	struct TreeNode *order_tree;
-
-    u32 expected;
     struct ChannelInfo Channels[8];
     spinlock_t lock; //lock for read/write, write/write conflicts
     struct hlist_node hash;
@@ -201,27 +152,23 @@ struct rcv_data {
 
 struct rcv_ack {
     u64 key;
-    u32 rwnd;
-	u32 rwnd_clamp;
-	u32 snd_una;   //LastACK
-	u32 snd_nxt;   //NextSeq
-	u32 next_seq;
-	u8 snd_wscale;
-	u32 dupack_cnt;
-	u32 MileStone;
-	u8 Flags;
-	u8 currentChannel;
-    //for packet loss
-    struct SeqChain *seq_chain;
-
-	struct ChannelInfo Channels[8];
-	spinlock_t lock;
-	struct hlist_node hash;
+    u64 timestamp;  //time of arrival of last packet 
+    u32 snd_una;   //LastACK
+    u32 snd_nxt;   //NextSeq
+    u32 next_seq;
+    u8 snd_wscale;
+    u32 MileStone;
+    u8 currentChannel;
+    struct ChannelInfo Channels[8];
+    spinlock_t lock;
+    struct hlist_node hash;
     struct rcu_head rcu;
 };
 
 
 /*end of Yiran's structure*/
+
+
 unsigned int ovs_net_id __read_mostly;
 
 static struct genl_family dp_packet_genl_family;
@@ -241,6 +188,7 @@ static struct genl_multicast_group ovs_dp_datapath_multicast_group = {
 struct genl_multicast_group ovs_dp_vport_multicast_group = {
 	.name = OVS_VPORT_MCGROUP
 };
+
 
 /*start of Yiran's function*/
 static u16 ovs_hash_min(u64 key, int size) {
@@ -376,415 +324,23 @@ static void __hashtbl_exit(void) {
         rcv_ack_hashtbl_destroy();
 }
 
-static void SendOut(struct sk_buff* skb,struct rcv_data* entry)
-{
-	struct sw_flow_actions *sf_acts;
-	struct sw_flow_key *key = entry->skey;
-	struct sw_flow *flow = entry->flow;
-	struct datapath *dp = entry->dp;
-	
-	sf_acts = rcu_dereference(flow->sf_acts);
-	if (skb == NULL)	{
-		//printk("here skb has been null.\n");
-		return;
-	}
-	if (ovs_execute_actions(dp, skb, sf_acts, key) < 0) {
-		printk("ovs_execute_actions failure!\n");
-	}
-	
-}
-
-void InOrder(struct TreeNode* root,struct rcv_data* entry)
-{
-    //printk("go to InOrder.\n");
-    struct ListNode * head = NULL;
-    if (root != NULL) {
-        InOrder(root->left, entry);
-        head = root->head;
-        while (head != NULL)
-        {
-            //printk("going to sendout seq:%u, expected: %u\n", head->seq, entry->expected);
-            SendOut(head->skb, entry);
-            if (before(entry->expected, head->seq + head->tcp_data_len)) {
-                entry->expected = head->seq + head->tcp_data_len;
-                //printk("Inorder: update expected, %u.\n",entry->expected);
-            }
-            head = head->next;
-        }
-        InOrder(root->right, entry);
-    }
-}
-
-void BufferDump(struct TreeNode* root,struct rcv_data* entry)
-{
-    struct ListNode * pkt = NULL;
-    struct ListNode * ptmp = NULL;
-    struct TreeNode * cur = root;
-    struct TreeNode * ntmp = NULL;
-    //printk("dump!\n");
-    while (cur != NULL) {
-        if (cur->left != NULL) { 
-            cur = cur->left;
-            //printk("find left\n");
-            continue;
-        }
-        pkt = cur->head;
-        while (pkt != NULL) { // dump pkts in the current node
-            if (before(entry->expected, pkt->seq)) {
-                //printk("expected:%u, actual:%u\n", entry->expected, pkt->seq);
-                return;
-            }
-//            printk("send out: %u\n", pkt->seq);
-            SendOut(pkt->skb, entry);
-            entry->record_jiffies = jiffies;
-            if (before(entry->expected, pkt->seq + pkt->tcp_data_len)) {
-                entry->expected = pkt->seq + pkt->tcp_data_len;
-            }
-            ptmp = pkt->next;
-            kfree(pkt);
-            pkt = ptmp;
-        }
-        cur->head = NULL;
-        cur->tail = NULL;
-        if(cur->right != NULL) {
-            ntmp = cur->right;
-            cur->head = ntmp->head;
-            cur->tail = ntmp->tail;
-            cur->left = ntmp->left;
-            cur->right = ntmp->right;
-            if (cur->left != NULL) {
-                cur->left->parent = cur;
-            }
-            if (cur->right != NULL) {
-                cur->right->parent = cur;
-            }
-            kfree(ntmp);
-            //printk("find right\n");
-            continue;
-        } else {
-            if (cur->type == LEFT) {
-                ntmp = cur->parent;
-                if (ntmp->left != NULL) {
-                    kfree(ntmp->left);
-                    ntmp->left = NULL;
-                    cur = ntmp;
-                }
-            } else if (cur->type == RIGHT) {
-                ntmp = cur->parent;
-                if (ntmp->right != NULL) {
-                    kfree(ntmp->right);
-                    ntmp->right = NULL;
-                    cur = ntmp;
-                }
-            } else {
-                break;
-            }
-        }
-    }
-}
-
-void freeTree(struct TreeNode** root)
-{
-	struct ListNode* temp = NULL;
-	if(*root == NULL)
-	{
-		return;
-	}
-
-	if ((*root)->left) {
-		freeTree(&((*root)->left));
-		(*root)->left = NULL;
-	}
-	if ((*root)->right) {
-		freeTree(&((*root)->right));
-		(*root)->right = NULL;
-	}
-	while((*root)->head)
-	{
-		temp = (*root)->head->next;
-		kfree((*root)->head);
-		(*root)->head = temp;
-	}
-	(*root)->head = NULL;
-    (*root)->tail = NULL;
-	kfree(*root);
-	(*root) = NULL;
-	
-}
-void insertToSeqList(struct rcv_ack* entry,u32 seq, u8 cid)
-{
-    struct SeqChain *q = NULL;
-    struct SeqNode *l = NULL;
-
-    
-    //printk("Insert into seqList, seq: %u, cid:%u.\n",seq,cid);
-
-    if(entry->seq_chain == NULL)
-    {
-
-        q = kzalloc(sizeof(struct SeqChain), GFP_ATOMIC);
-        if(q!= NULL)
-        {   
-            l = kzalloc(sizeof(struct SeqNode), GFP_ATOMIC);
-            if(l != NULL)
-            {
-                l->seq = seq;
-                l->cid = cid;
-                l->next = NULL;
-                entry->seq_chain = q;
-                entry->seq_chain->head = l;
-                entry->seq_chain->tail = l; 
-                
-            }
-            
-        }
-        
-    }
-    else
-    {
-        l = kzalloc(sizeof(struct SeqNode), GFP_ATOMIC);
-        if(l != NULL)
-        {
-                
-            l->seq = seq;
-            l->cid = cid;
-            l->next = NULL;
-            entry->seq_chain -> tail ->next = l;
-            entry->seq_chain -> tail = l;
-        }
-        
-    }
-
-    
-}
-u8 FindLossChannel(u32 seq, struct SeqChain *root)
-{
-    struct SeqNode * start;
-    struct SeqNode * next;
-    if(root == NULL)
-    {
-        return 8;
-    }
-    start = root->head;
-    
-    if(start == NULL)
-    {
-        return 8;
-    }
-    next = start ->next;
-    if(next == NULL)
-    {
-        if(seq == start->seq || after(seq,start->seq))
-        {
-            return start->cid;
-        }
-        else
-        {
-            return 8;
-        }
-    }
-    while(next!= NULL)
-    {
-        if(!before(seq, start->seq) && before(seq,next->seq))
-        {
-            return start->cid;
-        }
-        else if(after(start->seq,seq))
-        {
-            return 8;
-        }
-        else if(!before(seq,next->seq))
-        {
-            start = start->next;
-            next = next->next;
-        }
-    }
-    return start ->cid;
-    
-}
-
-
-
-void freeChain(struct SeqChain *root, u32 ack, struct rcv_ack* entry)
-{
-    struct SeqNode * start;
-    struct SeqNode * tmp;
-    if(root == NULL)
-    {
-        //printk("enter into freeChain, but root is null.\n");
-        return;
-    }
-    start = root->head;
-    tmp = start;
-    
-    while(tmp != NULL && before(tmp->seq,ack))
-    {
-        
-        if(entry->Channels[tmp->cid].lossdetected == true)
-        {
-            entry->Channels[tmp->cid].lossdetected = false;
-        }
-        //printk("free seqnode, seq: %u, ack:%u.\n",tmp->seq,ack);
-        tmp = start->next;
-        kfree(start);
-        start = tmp;
-
-    }
-    start = NULL;
-    root->head = tmp;
-}
-
-void insertToTree(struct TreeNode **root, struct sk_buff *skb, u32 seq, u32 tcp_data_len)
-{
-    // here the skb must be tcp
-    u32 seqhead;
-    u32 seqtail;
-    u32 taillen;
-    struct TreeNode *p = *root;
-    struct TreeNode *q = NULL;
-    struct TreeNode *parent = p;
-
-    struct ListNode *l = kzalloc(sizeof(struct ListNode), GFP_ATOMIC);
-    l->seq = seq;
-    l->tcp_data_len = tcp_data_len;
-    l->skb = skb;
-    l->next = NULL;
-
-    while (p != NULL) { // find node
-        parent = p; 
-        if (p->head == NULL) {
-            p->head = l;
-            p->tail = l;
-            return;
-        }
-        seqhead = p->head->seq;
-        seqtail = p->tail->seq;
-        taillen = p->tail->tcp_data_len;
-        if (before(seq, seqhead)) {
-            p = p->left;
-            //printk("go left %u by %u\n", seq, seqhead);
-        } else if (!after(seq, seqtail + taillen)) { // get node
-            p->tail->next = l;
-            p->tail = l;
-            p->tail->next = NULL;
-            //printk("append %u by %u\n", seq, seqtail + taillen);
-            return;
-        } else {
-            p = p->right;
-            //printk("go right %u by %u\n", seq, seqtail + taillen);
-        }
-    }
-
-    q = kzalloc(sizeof(struct TreeNode), GFP_ATOMIC);
-    q->left = q->right = NULL; 
-    q->head = l;
-    q->tail = l;   
-
-    if (*root == NULL) { // if the root is NULL
-        q->parent = NULL;
-        q->type = NONE;
-        *root = q; 
-    } else if (before(seq, parent->head->seq)) { // if the node is the left child of parent
-        parent->left = q;   
-        q->parent = parent;
-        q->type = LEFT;
-        //printk("add left %u \n", seq);
-    } else { // if the node is the right child of parent
-        parent->right = q;  
-        q->parent = parent;
-        q->type = RIGHT;
-        //printk("add right %u \n", seq);
-    }
-}
-
-void addToBuffer(struct sw_flow_key *key,struct sk_buff *skb,struct sw_flow *flow,struct datapath *dp,struct rcv_data * the_entry)
-{
-    struct iphdr *nh;
-    struct tcphdr * tcp;
-    struct TreeNode * q = NULL;
-    struct ListNode* l = NULL;
-    u32 tcp_data_len;
-    u32 seq;
-    nh = ip_hdr(skb);
-    tcp = tcp_hdr(skb);
-    seq = ntohl(tcp->seq);
-    tcp_data_len = ntohs(nh->tot_len) - (nh->ihl << 2) - (tcp->doff << 2);
-    // record the time of the first skb come into the buffer 
-    if (the_entry->order_tree == NULL) {
-        l = kzalloc(sizeof(struct ListNode), GFP_ATOMIC);
-        q = kzalloc(sizeof(struct TreeNode), GFP_ATOMIC);
-        if(l == NULL || q == NULL) {
-            printk("kzalloc(sizeof(struct ListNode),GFP_ATOMIC) fail!\n");
-            return ;
-        }
-        l->seq = seq;
-        l->tcp_data_len = tcp_data_len;
-        l->skb = skb;
-        l->next = NULL;
-        q->left = q->right = NULL ; 
-        q->parent = NULL;
-        q->type = NONE;
-        q->head = l;
-        q->tail = l;   
-        the_entry->order_tree = q;
-        the_entry->record_jiffies = jiffies;
-    } else {
-        insertToTree(&(the_entry->order_tree), skb, seq, tcp_data_len);
-    }
-    /*
-       if(after(seq + tcp_data_len, the_entry->maxseq))	{
-       the_entry->maxseq = seq + tcp_data_len;
-       }
-     */
-    the_entry->skey = key;
-    the_entry->flow = flow;
-    the_entry->dp = dp;
-}
-
-void checkBuffer(unsigned long p)
-{
-    int j = 0;
-    u64 now = jiffies;
-    struct rcv_data * v_iter = NULL;
-    spin_lock(&datalock);   
-    for(j = 0; j < (1 << TBL_SIZE); j++)
-    {
-        hlist_for_each_entry_rcu(v_iter, &rcv_data_hashtbl[j], hash) {
-            if (now - v_iter->record_jiffies >= usecs_to_jiffies(200)) {
-                spin_lock(&v_iter->lock);
-                if(v_iter->order_tree != NULL)
-                {
-                    //printk("check buffer!\n");
-                    InOrder(v_iter->order_tree, v_iter);
-                    freeTree(&(v_iter->order_tree));
-                    v_iter->order_tree = NULL;
-                }
-                v_iter->reorder = 0;
-                spin_unlock(&v_iter->lock);
-            }
-		}
-	}    
-	spin_unlock(&datalock); 	
-	my_timer.expires = jiffies + usecs_to_jiffies(25);
-	add_timer(&my_timer); 
-}
 
 static u64 get_tcp_key64(u32 ip1, u32 ip2, u16 tp1, u16 tp2) {
-	u64 key = 0;
-	u64 part1, part2, part3, part4;
+    u64 key = 0;
+    u64 part1, part2, part3, part4;
 
-	part1 = ip1 & ((1<<16) - 1);// get the lower 16 bits of u32
-	part1 = part1 << 48; //the highest 16 bits of the result
+    part1 = ip1 & ((1<<16) - 1);// get the lower 16 bits of u32
+    part1 = part1 << 48; //the highest 16 bits of the result
 
-	part2 = ip2 & ((1<<16) - 1);	 
-	part2 = part2 << 32;	
+    part2 = ip2 & ((1<<16) - 1);     
+    part2 = part2 << 32;    
 
-	part3 = tp1 << 16;
+    part3 = tp1 << 16;
 
-	part4 = tp2;
+    part4 = tp2;
 
-	key = part1 + part2 + part3 + part4;
-	return key;
+    key = part1 + part2 + part3 + part4;
+    return key;
 
 }
 /*helper function, determine the direction of the traffic (packet), i.e., go to the net or come to the host? */
@@ -814,7 +370,7 @@ static u8 ovs_tcp_parse_options(const struct sk_buff *skb) {
                         length--;
                         continue;
                 default:
-						opsize = *ptr++;
+                        opsize = *ptr++;
                         if (opsize < 2) /* "silly options" */
                                 return 0;
                         if (opsize > length)
@@ -840,121 +396,111 @@ static u8 ovs_tcp_parse_options(const struct sk_buff *skb) {
 }
 
 static int ovs_pack_FBK_info(struct sk_buff * skb, u32 ReceivedCount, u32 fbkNumber ,u16 RCE,u16 fbkid) {
-	struct iphdr *nh;
+    struct iphdr *nh;
     struct tcphdr * tcp;
-	u16 header_len;
-	u16 old_total_len;
-	u16 old_tcp_len;
-	u16 fbk_rce_rcv = 0;
-	
-	//add TCP option
-	u8 kind = 15;
-	u8 len  = 8;
-	u8 FBK_INFO_LEN = 8;
-	u32 cmp = (1 << 20) - 1;
-	
-	/*the caller makes sure this is a TCP packet*/
-	nh = ip_hdr(skb);
-	tcp = tcp_hdr(skb);
+    u16 header_len;
+    u16 old_total_len;
+    u16 old_tcp_len;
+    u16 fbk_rce_rcv = 0;
+    
+    //add TCP option
+    u8 kind = 15;
+    u8 len  = 8;
+    u8 FBK_INFO_LEN = 8;
+    u32 cmp = (1 << 20) - 1;
+    
+    /*the caller makes sure this is a TCP packet*/
+    nh = ip_hdr(skb);
+    tcp = tcp_hdr(skb);
 
 
-	//printk("enter into ovs_pack_FBK_info:outgoing ack:%u   seq:%u.  \n",ntohl(tcp->ack_seq),ntohl(tcp->seq));
-	header_len = skb->mac_len + (nh->ihl << 2) + 20;
-	old_total_len = ntohs(nh->tot_len); 
-	old_tcp_len = tcp->doff << 2;
-	
-	if (skb_cow_head(skb, FBK_INFO_LEN) < 0)
-	{
-		printk("skb_cow_head(skb, FBK_INFO_LEN) < 0:outgoing ack:%u.\n",ntohl(tcp->ack_seq));
-		return -ENOMEM;
-	}
-		
+    //printk("enter into ovs_pack_FBK_info:outgoing ack:%u   seq:%u.  \n",ntohl(tcp->ack_seq),ntohl(tcp->seq));
+    header_len = skb->mac_len + (nh->ihl << 2) + 20;
+    old_total_len = ntohs(nh->tot_len); 
+    old_tcp_len = tcp->doff << 2;
+    
+    if (skb_cow_head(skb, FBK_INFO_LEN) < 0)
+    {
+        printk("skb_cow_head(skb, FBK_INFO_LEN) < 0:outgoing ack:%u.\n",ntohl(tcp->ack_seq));
+        return -ENOMEM;
+    }
+        
 
-	//printk("we are packing FBK: fbkNumber:%u,fbkcid:%u, isRCE:%u, receivedCount:%u\n",fbkNumber,fbkid,RCE,ReceivedCount);
-	
-	fbk_rce_rcv += (fbkid << 13);
-	fbk_rce_rcv += (RCE << 12);
-	if(ReceivedCount > cmp)
-	{
-		ReceivedCount = cmp;
-	}
-	ReceivedCount = ReceivedCount >> 8;
-	fbk_rce_rcv += ReceivedCount;
-	/*printk("before maring pack, tcp->doff:%u, nh->ip_hdr:%u, tcp->res1:%u,skb->len:%u, \
-		skb->data_len:%u,skb->mac_len:%u,skb->csum:%u,skb->local_df:%u,skb->cloned:%u, \
-		skb->nohdr:%u,skb->nfctinfo:%u,skb->pkt_type:%u,skb->fclone:%u,skb->ipvs_property:%u, \
-		skb->truesize:%u,skb->ip_summed:%u,skb->data:%u,skb->head:%u,skb->tail:%u,skb->end:%u, \
-		skb->csum_start:%u,skb->csum_offset:%u,skb->transport_header:%u,tcp->hdr_len:%u\n",
-		ntohs(tcp->doff), ntohs(nh->tot_len), tcp->res1,skb->len,
-		skb->data_len,skb->mac_len,skb->csum,skb->local_df,skb->cloned,
-		skb->nohdr,skb->nfctinfo,skb->pkt_type,skb->fclone,skb->ipvs_property,
-		skb->truesize,skb->ip_summed,skb->data,skb->head,skb->tail,skb->end,
-		skb->csum_start,skb->csum_offset,skb->transport_header, tcp_hdrlen(skb));*/
+    //printk("we are packing FBK: fbkNumber:%u,fbkcid:%u, isRCE:%u, receivedCount:%u\n",fbkNumber,fbkid,RCE,ReceivedCount);
+    
+    fbk_rce_rcv += (fbkid << 13);
+    fbk_rce_rcv += (RCE << 12);
+    if(ReceivedCount > cmp)
+    {
+        ReceivedCount = cmp;
+    }
+    ReceivedCount = ReceivedCount >> 8;
+    fbk_rce_rcv += ReceivedCount;
 
-	if(skb->end - skb->tail < 8)
-	{
-		printk("not enough room:outgoing ack:%u.\n",ntohl(tcp->ack_seq));
-		return -ENOMEM;
-	}
-	else
-	{
-		//printk("enough room to add option.\n");
-	}
-	//payload = skb->tail - (skb->mac_header + header_len);
-	skb_push(skb, FBK_INFO_LEN);
-	//skb_put(skb, FBK_INFO_LEN);
-	memmove(skb_mac_header(skb) - FBK_INFO_LEN, skb_mac_header(skb), header_len);
-	//memmove(skb_mac_header(skb) + header_len + FBK_INFO_LEN,skb_mac_header(skb) + header_len, payload);
-	skb_reset_mac_header(skb);
-	skb_set_network_header(skb, skb->mac_len);
-	skb_set_transport_header(skb, skb->mac_len + (ip_hdr(skb)->ihl << 2));
+    if(skb->end - skb->tail < 8)
+    {
+        printk("not enough room:outgoing ack:%u.\n",ntohl(tcp->ack_seq));
+        return -ENOMEM;
+    }
+    else
+    {
+        //printk("enough room to add option.\n");
+    }
+    //payload = skb->tail - (skb->mac_header + header_len);
+    skb_push(skb, FBK_INFO_LEN);
+    //skb_put(skb, FBK_INFO_LEN);
+    memmove(skb_mac_header(skb) - FBK_INFO_LEN, skb_mac_header(skb), header_len);
+    //memmove(skb_mac_header(skb) + header_len + FBK_INFO_LEN,skb_mac_header(skb) + header_len, payload);
+    skb_reset_mac_header(skb);
+    skb_set_network_header(skb, skb->mac_len);
+    skb_set_transport_header(skb, skb->mac_len + (ip_hdr(skb)->ihl << 2));
 
-	fbk_rce_rcv = htons(fbk_rce_rcv);
-	fbkNumber = htonl(fbkNumber);
-	
-	memcpy(skb_mac_header(skb) + header_len , &kind, 1);
-	memcpy(skb_mac_header(skb) + header_len + 1, &len, 1);
-	
-	memcpy(skb_mac_header(skb) + header_len + 2, &fbk_rce_rcv, 2);
-	memcpy(skb_mac_header(skb) + header_len + 4, &fbkNumber, 4);
+    fbk_rce_rcv = htons(fbk_rce_rcv);
+    fbkNumber = htonl(fbkNumber);
+    
+    memcpy(skb_mac_header(skb) + header_len , &kind, 1);
+    memcpy(skb_mac_header(skb) + header_len + 1, &len, 1);
+    
+    memcpy(skb_mac_header(skb) + header_len + 2, &fbk_rce_rcv, 2);
+    memcpy(skb_mac_header(skb) + header_len + 4, &fbkNumber, 4);
 
-	
-	/*we believe that the NIC will re-calculate checksums for us*/
-	nh = ip_hdr(skb);
-	tcp = tcp_hdr(skb);
+    
+    /*we believe that the NIC will re-calculate checksums for us*/
+    nh = ip_hdr(skb);
+    tcp = tcp_hdr(skb);
     //add by yiran: when not support offload
     //csum_replace2(&nh->check, nh->tot_len, htons(old_total_len + FBK_INFO_LEN));
 
 
-	nh->tot_len = htons(old_total_len + FBK_INFO_LEN);
+    nh->tot_len = htons(old_total_len + FBK_INFO_LEN);
     //add by yiran: when not support offload
 
     //csum_replace2(&tcp->check, htons(tcp->doff << 12), htons(((old_tcp_len + FBK_INFO_LEN) >> 2) << 12));
 
 
-	tcp->doff = ((old_tcp_len + FBK_INFO_LEN) >> 2);
+    tcp->doff = ((old_tcp_len + FBK_INFO_LEN) >> 2);
     //printk("before pack:tcp->check:%02x ,ack:%u   seq:%u.  \n",ntohs(tcp->check),ntohl(tcp->ack_seq),ntohl(tcp->seq));
 
-	//csum_replace2(&tcp->check, htons(tcp->cwr << 15), htons(1 << 15));
+    //csum_replace2(&tcp->check, htons(tcp->cwr << 15), htons(1 << 15));
 
     //set FBK = 1 
 
-    tcp->cwr = 1;
+    tcp->res1 |= OVS_VMS_ENABLE;
     //when offload checksum
-	skb->csum_start = skb->csum_start - 8;
-	tcp->check = ~tcp_v4_check(skb->len - header_len + 20, nh->saddr, nh->daddr, 0);
-	ip_send_check(nh);
-	/*printk("after maring pack, tcp->doff:%u, nh->ip_hdr:%u, tcp->res1:%u,skb->len:%u, \
-		skb->data_len:%u,skb->mac_len:%u,skb->csum:%u,skb->local_df:%u,skb->cloned:%u, \
-		skb->nohdr:%u,skb->nfctinfo:%u,skb->pkt_type:%u,skb->fclone:%u,skb->ipvs_property:%u, \
-		skb->truesize:%u,skb->ip_summed:%u,skb->data:%u,skb->head:%u,skb->tail:%u,skb->end:%u, \
-		skb->csum_start:%u,skb->csum_offset:%u,skb->transport_header:%u,tcp->hdr_len:%u\n",
-		ntohs(tcp->doff), ntohs(nh->tot_len), tcp->res1,skb->len,
-		skb->data_len,skb->mac_len,skb->csum,skb->local_df,skb->cloned,
-		skb->nohdr,skb->nfctinfo,skb->pkt_type,skb->fclone,skb->ipvs_property,
-		skb->truesize,skb->ip_summed,skb->data,skb->head,skb->tail,skb->end,
-		skb->csum_start,skb->csum_offset,skb->transport_header, tcp_hdrlen(skb));*/
-	//printk("end of ovs_pack_FBK_info:outgoing ack:%u.\n",ntohl(tcp->ack_seq));
+    skb->csum_start = skb->csum_start - 8;
+    tcp->check = ~tcp_v4_check(skb->len - header_len + 20, nh->saddr, nh->daddr, 0);
+    ip_send_check(nh);
+    /*printk("after maring pack, tcp->doff:%u, nh->ip_hdr:%u, tcp->res1:%u,skb->len:%u, \
+        skb->data_len:%u,skb->mac_len:%u,skb->csum:%u,skb->local_df:%u,skb->cloned:%u, \
+        skb->nohdr:%u,skb->nfctinfo:%u,skb->pkt_type:%u,skb->fclone:%u,skb->ipvs_property:%u, \
+        skb->truesize:%u,skb->ip_summed:%u,skb->data:%u,skb->head:%u,skb->tail:%u,skb->end:%u, \
+        skb->csum_start:%u,skb->csum_offset:%u,skb->transport_header:%u,tcp->hdr_len:%u\n",
+        ntohs(tcp->doff), ntohs(nh->tot_len), tcp->res1,skb->len,
+        skb->data_len,skb->mac_len,skb->csum,skb->local_df,skb->cloned,
+        skb->nohdr,skb->nfctinfo,skb->pkt_type,skb->fclone,skb->ipvs_property,
+        skb->truesize,skb->ip_summed,skb->data,skb->head,skb->tail,skb->end,
+        skb->csum_start,skb->csum_offset,skb->transport_header, tcp_hdrlen(skb));*/
+    //printk("end of ovs_pack_FBK_info:outgoing ack:%u.\n",ntohl(tcp->ack_seq));
     //when not offload checksum
     /*header_len = (ntohs(nh->tot_len) - (nh->ihl << 2));
     tcp->check = 0;
@@ -965,70 +511,70 @@ static int ovs_pack_FBK_info(struct sk_buff * skb, u32 ReceivedCount, u32 fbkNum
 
 
 
-	return 0; 
+    return 0; 
 }
 
 static int ovs_unpack_FBK_info(struct sk_buff* skb, u32 * fbkNumber, u32 * receivedCount,u8 * isRCE,u8 * fbkcid) {
-	struct iphdr *nh;
+    struct iphdr *nh;
     struct tcphdr * tcp;
     u16 *fbkRCERece;
     u16 header_len;
-	u16 temp1;
-	u16 old_total_len;
-	u16 old_tcp_len;
-	u16 payload;
-	u16 newlen;
-	int err;
+    u16 temp1;
+    u16 old_total_len;
+    u16 old_tcp_len;
+    u16 payload;
+    u16 newlen;
+    int err;
 
-	u8 ECN_INFO_LEN = 8;
+    u8 ECN_INFO_LEN = 8;
         /*the caller makes sure this is a TCP packet*/
     nh = ip_hdr(skb);
     tcp = tcp_hdr(skb);
 
-	header_len = skb->mac_len + (nh->ihl << 2) + 20;
-	old_total_len = ntohs(nh->tot_len);
-	old_tcp_len = tcp->doff << 2;
+    header_len = skb->mac_len + (nh->ihl << 2) + 20;
+    old_total_len = ntohs(nh->tot_len);
+    old_tcp_len = tcp->doff << 2;
 
 
-	err = skb_ensure_writable(skb, header_len);
-	if (unlikely(err))
-		return err;
+    err = skb_ensure_writable(skb, header_len);
+    if (unlikely(err))
+        return err;
 
-	memset(receivedCount, 0, sizeof(*fbkRCERece));
-	memset(fbkNumber, 0, sizeof(*fbkNumber));
+    memset(receivedCount, 0, sizeof(*fbkRCERece));
+    memset(fbkNumber, 0, sizeof(*fbkNumber));
 
-	payload = skb->tail - (skb->mac_header + header_len);
-	
-	memcpy(&temp1, skb_mac_header(skb) + header_len + 2, 2);
-    	memcpy(fbkNumber, skb_mac_header(skb) + header_len + 4, 4);
+    payload = skb->tail - (skb->mac_header + header_len);
+    
+    memcpy(&temp1, skb_mac_header(skb) + header_len + 2, 2);
+        memcpy(fbkNumber, skb_mac_header(skb) + header_len + 4, 4);
 
-    	temp1 = ntohs(temp1);
-	
-	*fbkcid = (temp1 >> 13);
-	*isRCE = (temp1 >> 12) & 1;
-	*receivedCount = (temp1 & ((1 << 12) - 1)) << 8;
-	
-	//printk("we are unpack FBK: fbkNumber:%u,fbkcid:%u, isRCE:%u, receivedCount:%u\n",*fbkNumber,*fbkcid,*isRCE,*receivedCount);
+        temp1 = ntohs(temp1);
+    
+    *fbkcid = (temp1 >> 13);
+    *isRCE = (temp1 >> 12) & 1;
+    *receivedCount = (temp1 & ((1 << 12) - 1)) << 8;
+    
+    //printk("we are unpack FBK: fbkNumber:%u,fbkcid:%u, isRCE:%u, receivedCount:%u\n",*fbkNumber,*fbkcid,*isRCE,*receivedCount);
 
-	skb_postpull_rcsum(skb, skb_mac_header(skb) + header_len, ECN_INFO_LEN);
+    skb_postpull_rcsum(skb, skb_mac_header(skb) + header_len, ECN_INFO_LEN);
 
-	//printk("we are unpack (before), tcp->src:%u, tcp->dst:%u, tcp->seq:%u, tcp->ack_seq:%u, tcp->res1:%u, nh->tot_len:%u, tcp->doff:%u, \n fbkNumber:%u, recevicedCount:%u, fbkid:%d, isRCE:%d, skb->ip_summed:%u, skb_csum:%u\n",ntohs(tcp->source), ntohs(tcp->dest), ntohl(tcp->seq), ntohl(tcp->ack_seq), tcp->res1, ntohs(nh->tot_len), tcp->doff, *fbkNumber, *receivedCount, *fbkcid, *isRCE,skb->ip_summed, skb->csum);
-	//memmove(skb_mac_header(skb) + ECN_INFO_LEN, skb_mac_header(skb), header_len);
-	memmove(skb_mac_header(skb) + header_len, skb_mac_header(skb) + header_len + ECN_INFO_LEN, payload - ECN_INFO_LEN);
-	//__skb_pull(skb, ECN_INFO_LEN);
-	newlen = skb->len - 8;
+    //printk("we are unpack (before), tcp->src:%u, tcp->dst:%u, tcp->seq:%u, tcp->ack_seq:%u, tcp->res1:%u, nh->tot_len:%u, tcp->doff:%u, \n fbkNumber:%u, recevicedCount:%u, fbkid:%d, isRCE:%d, skb->ip_summed:%u, skb_csum:%u\n",ntohs(tcp->source), ntohs(tcp->dest), ntohl(tcp->seq), ntohl(tcp->ack_seq), tcp->res1, ntohs(nh->tot_len), tcp->doff, *fbkNumber, *receivedCount, *fbkcid, *isRCE,skb->ip_summed, skb->csum);
+    //memmove(skb_mac_header(skb) + ECN_INFO_LEN, skb_mac_header(skb), header_len);
+    memmove(skb_mac_header(skb) + header_len, skb_mac_header(skb) + header_len + ECN_INFO_LEN, payload - ECN_INFO_LEN);
+    //__skb_pull(skb, ECN_INFO_LEN);
+    newlen = skb->len - 8;
     //printk(KERN_INFO "enter into : skb_trim\n");
-	__skb_trim(skb,newlen);
-	skb_reset_mac_header(skb);
-	skb_set_network_header(skb, skb->mac_len);
-    	skb_set_transport_header(skb, skb->mac_len + (ip_hdr(skb)->ihl << 2));
+    __skb_trim(skb,newlen);
+    skb_reset_mac_header(skb);
+    skb_set_network_header(skb, skb->mac_len);
+        skb_set_transport_header(skb, skb->mac_len + (ip_hdr(skb)->ihl << 2));
 
-	nh = ip_hdr(skb);
-	tcp = tcp_hdr(skb);
-	
-	nh->tot_len = htons(old_total_len - ECN_INFO_LEN);
+    nh = ip_hdr(skb);
+    tcp = tcp_hdr(skb);
+    
+    nh->tot_len = htons(old_total_len - ECN_INFO_LEN);
     //when offload checksum
-	csum_replace2(&nh->check, htons(old_total_len), nh->tot_len);
+    csum_replace2(&nh->check, htons(old_total_len), nh->tot_len);
 
     //csum_replace2(&tcp->check, htons(tcp->doff << 12), htons(((old_tcp_len - ECN_INFO_LEN) >> 2) << 12));
 
@@ -1043,32 +589,26 @@ static int ovs_unpack_FBK_info(struct sk_buff* skb, u32 * fbkNumber, u32 * recei
     tcp->check = tcp_v4_check(header_len,nh->saddr,nh->daddr,csum_partial((char*) tcp, header_len, 0));*/
     //printk("after unpack:tcp->check:%02x ,ack:%u   seq:%u.  \n",ntohs(tcp->check),ntohl(tcp->ack_seq),ntohl(tcp->seq));
 
-	
-	//printk("we are here unpack (after), tcp->src:%u, tcp->dst:%u, tcp->seq:%u, tcp->ack_seq:%u, tcp->res1:%u, nh->tot_len:%u, tcp->doff:%u, \n fbkNumber:%u, recevicedCount:%u, fbkid:%d, isRCE:%d, skb->ip_summed:%u, skb_csum:%u\n",ntohs(tcp->source), ntohs(tcp->dest), ntohl(tcp->seq), ntohl(tcp->ack_seq), tcp->res1, ntohs(nh->tot_len), tcp->doff, *fbkNumber, *receivedCount, *fbkcid, *isRCE,skb->ip_summed, skb->csum);
-	
-	return 0;	
+    
+    //printk("we are here unpack (after), tcp->src:%u, tcp->dst:%u, tcp->seq:%u, tcp->ack_seq:%u, tcp->res1:%u, nh->tot_len:%u, tcp->doff:%u, \n fbkNumber:%u, recevicedCount:%u, fbkid:%d, isRCE:%d, skb->ip_summed:%u, skb_csum:%u\n",ntohs(tcp->source), ntohs(tcp->dest), ntohl(tcp->seq), ntohl(tcp->ack_seq), tcp->res1, ntohs(nh->tot_len), tcp->doff, *fbkNumber, *receivedCount, *fbkcid, *isRCE,skb->ip_summed, skb->csum);
+    
+    return 0;   
 }
 
 u16 getTrueSrcPort(struct tcphdr * tcp)
 {
-	u16 curPort = ntohs(tcp->source);
-	u16 port;
-	u8 curChannel = tcp->res1 >> 1;
-	port = ((curPort + curChannel) & 7) + ((curPort & (~ 7)));
-    //port = curPort - curChannel;
-	//printk("curChannel:%u\n",curChannel);
-	//printk("Get the true srcport: %u, destport:%u,\n",port,ntohs(tcp->dest));
-	return port;
+    u16 curPort = ntohs(tcp->source);
+    u16 port;
+    u8 curChannel = tcp->res1 >> 1;
+    port = ((curPort + curChannel) & 7) + ((curPort & (~ 7)));
+    
+    return port;
 }
 
-int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
+int Window_based_Channel_Choosing(struct rcv_ack* the_entry){
     int c = the_entry->currentChannel;
     int check = c;
     u16 r1,r2;
-    u32 onfly1,onfly2,rwnd1,rwnd2,rwnd;
-    u32 avail = 0;
-    u32 avail1 = 0;
-    u32 avail2 = 0;
     struct ChannelInfo *ch = NULL;
     u8 i = 0;
     u32 max = 0;
@@ -1104,19 +644,7 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
     }
     max = 0;
     maxC = (c + 1) & 7;
-    /*get_random_bytes(&r1, sizeof(r1));
-    get_random_bytes(&r2, sizeof(r2));
-    r1 = r1 % 8;
-    if(r1 < 0)
-    {
-        r1 = 0;
-    }
-    r2 = r2 % 8;
-    if(r2 < 0)
-    {
-        r2 = 0;
-    }*/
-    for (i = 1; i <= VMS_CHANNEL_NUM; i++)	{
+    for (i = 1; i <= VMS_CHANNEL_NUM; i++)  {
         ch = &(the_entry -> Channels[c]);
         if (ch == NULL) {
             printk("error get corresponding channel when choose channel\n");
@@ -1127,10 +655,8 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
         if (onfly + psize <= ch->rwnd) {
             the_entry->Channels[c].LocalSendSeq += psize;
             the_entry->currentChannel = c; 
-            //printk("find avaliable channel: %u, onfly: %u, psize: %u, ch->rwnd: %u.\n",c, onfly,psize,ch->rwnd);
             return c;
         } else {
-            //printk("find larger channel: %u, onfly: %u, psize: %u, ch->rwnd: %u.\n",c, onfly,psize,ch->rwnd);
             if (max <= ch->rwnd - onfly) {
                 max = ch->rwnd - onfly;
                 maxC = c;
@@ -1147,66 +673,6 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
     the_entry->Channels[maxC].LocalSendSeq += psize;
     the_entry->currentChannel = maxC;
     return maxC;
-    /*ch = &(the_entry -> Channels[r1]);
-    onfly1 = ch->LocalSendSeq - ch->LocalFBKSeq;
-    rwnd1 = ch->rwnd;
-    if(rwnd1 > onfly1)
-    {
-        avail1 = rwnd1 - onfly1;
-    }
-    
-    ch = &(the_entry -> Channels[r2]);
-    onfly2 = ch->LocalSendSeq - ch->LocalFBKSeq;
-    rwnd2 = ch->rwnd;
-    if(rwnd2 > onfly2)
-    {
-        avail2 = rwnd2 - onfly2;
-    }
-
-
-    ch = &(the_entry -> Channels[c]);
-    onfly = ch->LocalSendSeq - ch->LocalFBKSeq;
-    rwnd = ch->rwnd;
-    if(rwnd > onfly)
-    {
-        avail = rwnd - onfly;
-    }
-
-
-    if(avail1 > avail2)
-    {
-        if(avail1 > avail)
-        {
-            the_entry->Channels[r1].LocalSendSeq += psize;
-            the_entry->currentChannel = r1;
-            return r1;
-        }
-        else
-        {
-            the_entry->Channels[c].LocalSendSeq += psize;
-            the_entry->currentChannel = c;
-            return c;
-        }
-    }
-    else
-    {
-        if(avail2 > avail)
-        {
-            the_entry->Channels[r2].LocalSendSeq += psize;
-            the_entry->currentChannel = r2;
-            return r2;
-        }
-        else
-        {
-            the_entry->Channels[c].LocalSendSeq += psize;
-            the_entry->currentChannel = c;
-            return c;
-        }
-    }
-
-    
-
-    return c;*/
 }
 
 int OnFeedBack(struct rcv_ack* the_entry,int fbkid,u32 receiveCount,u32 fbkNumber,int isRCE,u32 seq_ack)
@@ -1255,6 +721,7 @@ int OnFeedBack(struct rcv_ack* the_entry,int fbkid,u32 receiveCount,u32 fbkNumbe
         }
     }
 
+
     if(before(the_entry->MileStone,seq_ack)||the_entry->MileStone==seq_ack)
     {
         sum = 0;
@@ -1271,7 +738,7 @@ int OnFeedBack(struct rcv_ack* the_entry,int fbkid,u32 receiveCount,u32 fbkNumbe
             }
 
             ch->RttCESize = 0;
-            ch->RttSize = 0;	
+            ch->RttSize = 0;    
             sum += ch->rwnd;
             //printk("%u: ch->rwnd:%u; ch->alpha:%u.\n", i, ch->rwnd, ch->alpha);
         }
@@ -1286,6 +753,9 @@ int OnFeedBack(struct rcv_ack* the_entry,int fbkid,u32 receiveCount,u32 fbkNumbe
 
 
 /*end of Yiran's function*/
+
+
+
 
 
 /* Check if need to build a reply message.
@@ -1465,13 +935,8 @@ void ovs_dp_detach_port(struct vport *p)
 /* Must be called with rcu_read_lock. */
 void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 {
-	int reorder = 0;
-    //u32 expected = 0;
-    //u16 header_len;
-    //u16 old,new;
-    u16 cCh = 8;
+	
     int index;
-    struct rcv_data * tmp_entry = NULL;
 	const struct vport *p = OVS_CB(skb)->input_vport;
 	struct datapath *dp = p->dp;
 	struct sw_flow *flow;
@@ -1488,36 +953,16 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
         nh = ip_hdr(skb);
         if(nh->protocol == IPPROTO_TCP) {//this is an TCP packet
             tcp = tcp_hdr(skb);
-			reorder = 0;
-            // Yiran: outgoing to the NIC, the first syn packet, enable VMS
+            // Yiran: outgoing to the NIC, the first syn packet, enable CLOVE
             if (tcp->syn && ovs_packet_to_net(skb)) {
-                //printk(KERN_INFO "outgoing syn. seq:%u.\n",ntohl(tcp->seq));
-                //printk(KERN_INFO "outgoing syn before: checksum:%02x.\n",ntohs(tcp->check));
-                /*csum_replace2(&tcp->check, htons(tcp->res1 << 12), htons((tcp->res1 | OVS_VMS_ENABLE) << 12));*/
-                tcp->res1 |= OVS_VMS_ENABLE;
-                //printk(KERN_INFO "outgoing syn after: checksum:%02x.\n",ntohs(tcp->check));
-                //Yiran: if not support ECN, enable ECN. get the last two bits			
+                //tcp->res1 |= OVS_VMS_ENABLE;
                 if ((nh->tos & OVS_ECN_MASK) == OVS_ECN_ZERO) {
                     ipv4_change_dsfield(nh, 0, OVS_ECN_ONE);					
                 }
 
             }
 			
-			if(likely(tcp->res1 & OVS_VMS_ENABLE))
-			{
-                //Yiran: start the timer for reorder buffer
-				if(is_init == false)
-				{
-                    
-					is_init =true;
-					init_timer(&my_timer);
-					my_timer.function = checkBuffer;
-					my_timer.data = 0;
-					my_timer.expires = jiffies + usecs_to_jiffies(1);
-					//printk("The timer set up!\n");
-					//add_timer(&my_timer);
-				}
-			}
+			
         }//it was an TCP packet
     }//it was an IP packet
 
@@ -1554,8 +999,6 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 						rcv_ack_hashtbl_insert(tcp_key64, new_entry);
                         //printk("Outgoing SYN, insert in rcv_ack_hashbtl, src %u-->dest %u.\n",srcport,dstport);    						
 					}	
-					new_entry->rwnd = RWND_INIT;
-					new_entry->rwnd_clamp = RWND_CLAMP;
 					new_entry->snd_una = ntohl(tcp->seq);      //LastACK
 					new_entry->snd_nxt = ntohl(tcp->seq) + 1;  //SYN takes 1 byte
 					new_entry->next_seq = new_entry->snd_nxt;
@@ -1568,21 +1011,15 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 						new_entry->Channels[index].LocalFBKSeq = 0;
 						new_entry->Channels[index].LocalRecvSeq = 0;
 						new_entry->Channels[index].receivedCount = 0;
-						new_entry->Channels[index].rwnd = RWND_INIT;
-						new_entry->Channels[index].rwnd_ssthresh = RWND_SSTHRESH_INIT;//infinite
-						new_entry->Channels[index].alpha = DCTCP_ALPHA_INIT;
 						new_entry->Channels[index].flags = 0;
-                       
-                        new_entry->Channels[index].lossdetected = false;
+                        new_entry->Channels[index].CECount = 0;
 					}
 					new_entry->currentChannel = 0;
-					new_entry->dupack_cnt = 0;
-					new_entry->Flags = 0;
-                    new_entry->seq_chain = NULL;
+                    new_entry->timestamp = jiffies;
 					spin_lock_init(&new_entry->lock);							
 				}
 				/*TODO: we may also need to consider RST */
-				if (unlikely(tcp->fin || tcp->rst)) {
+				if (unlikely(tcp->fin)) {
 					struct rcv_ack * new_entry = NULL;
 					//pay attention to the parameter order
                     tcp_key64 = get_tcp_key64(dstip, srcip, dstport, srcport);
@@ -1591,7 +1028,6 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 					rcu_read_unlock();
 					if (likely(new_entry)) {
 						rcv_ack_hashtbl_delete(new_entry);
-                        //printk(KERN_INFO "rcv_ack_hashtbl new entry deleted. %d --> %d.\n",srcport, dstport);	
 					}
 						
 				}
@@ -1599,25 +1035,17 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 			}//it was outgoing SYN/FIN
 			else { 
 				//Yiran's logic: for incoming tcp traffic, we only process VMS enable packet
-				if (likely(tcp->res1 & OVS_VMS_ENABLE)) {
+				//if (likely(tcp->res1 & OVS_VMS_ENABLE)) {
 					u16 truesrcport = getTrueSrcPort(tcp);
-					cCh = ntohs(tcp->source);
-                    /*csum_replace2(&tcp->check,tcp->source, htons(truesrcport));*/
-
-					//Yiran's logic: here we modify the source port and also the key!!!!!!!!!!!!!!!
 					tcp->source = htons(truesrcport);
 					key->tp.src = tcp->source;
-
-
                     
 				if (unlikely(tcp->syn)) {
 					struct rcv_data * new_entry = NULL;
 					struct rcv_ack * ack_entry2 = NULL;
 
                     ipv4_change_dsfield(nh, 0, OVS_ECN_ZERO);
-                    /*csum_replace2(&tcp->check, htons(tcp->res1 << 12), htons((tcp->res1 & OVS_VMS_CLEAR)<<12));*/
-                    //tcp->res1 &= OVS_VMS_CLEAR;
-
+                    
 					tcp_key64 = get_tcp_key64(srcip, dstip, truesrcport, dstport);
 					rcu_read_lock();
                     new_entry = rcv_data_hashtbl_lookup(tcp_key64);
@@ -1629,14 +1057,9 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 						spin_lock_init(&new_entry->lock);
 						rcv_data_hashtbl_insert(tcp_key64, new_entry);
 						spin_lock(&new_entry->lock);
-						new_entry->expected = ntohl(tcp->seq) + 1;
                         //printk("insert entry in rcv_data_hashtbl.expected:%u.\n",new_entry->expected);
                         new_entry->FEEDBACK = 0;
-						new_entry->reorder = 0;
-						new_entry->skey = NULL;
-						new_entry->dp = dp;
-						new_entry->flow = NULL;
-						new_entry->order_tree = NULL;
+						
 						for(index = 0 ; index < VMS_CHANNEL_NUM ; index ++)
 						{
 							new_entry->Channels[index].RttSize = 0;
@@ -1645,15 +1068,10 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 							new_entry->Channels[index].LocalFBKSeq = 0;
 							new_entry->Channels[index].LocalRecvSeq = 0;
 							new_entry->Channels[index].receivedCount = 0;
-							new_entry->Channels[index].rwnd = RWND_INIT;
-							new_entry->Channels[index].rwnd_ssthresh = RWND_SSTHRESH_INIT;//infinite
-							new_entry->Channels[index].alpha = DCTCP_ALPHA_INIT;
 							new_entry->Channels[index].flags = 0;
-                            new_entry->Channels[index].lossdetected = false;
-                            
+                            new_entry->Channels[index].CECount = 0;
 						}
 						spin_unlock(&new_entry->lock);
-						//printk(KERN_INFO "rcv_data_hashtbl new entry inserted. %d --> %d\n", truesrcport, dstport);
 					}
 					tcp_key64 = get_tcp_key64(srcip, dstip, truesrcport, dstport);
 					rcu_read_lock();
@@ -1666,11 +1084,10 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 
 					}
 					ack_entry2->snd_wscale = ovs_tcp_parse_options(skb);
-					//printk("incoming SYN, get the window scaling factor and insert in rcv_ack_hashbtl: %u, src %u-->dest %u, MSS is %u\n",	ack_entry2->snd_wscale, truesrcport, ntohs(tcp->dest), MSS);	
 					
 				}
 				/*TODO: we may also need to consider RST */
-				if (unlikely(tcp->fin || tcp->rst)) {
+				if (unlikely(tcp->fin) || unlikely(tcp->rst)) {
 					//printk(KERN_INFO "This FIN packet coming from the NIC,delete the entry in rcv_data_hashtbl. %d --> %d,\n",srcport, dstport);
 					struct rcv_data * the_entry = NULL;
                     tcp_key64 = get_tcp_key64(srcip, dstip, truesrcport, dstport);
@@ -1685,7 +1102,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 						//printk(KERN_INFO "rcv_data_hashtbl try to delete but entry not found.	%d --> %d\n", srcport, dstport);
 					}	
 				}
-				}//VMS enable packets	
+				//}//VMS enable packets	
 			}//incoming to the host traffic
 				
 		}//is TCP packet
@@ -1711,7 +1128,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 		goto out;
 	}
 
-	u64 key64 = 0;
+	
 	if(ntohs(skb->protocol) == ETH_P_IP) {//this is an IP packet
 		nh = ip_hdr(skb);
 		if(nh->protocol == IPPROTO_TCP) {//this is an TCP packet
@@ -1722,8 +1139,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 			u64 tcp_key64;
 
 			//Yiran's logic:default channel,using when reset
-			int cid = 0;
-            int lossch = 8;	
+			int cid = 0;	
 			tcp = tcp_hdr(skb);
 			srcip = ntohl(nh->saddr);
 			dstip = ntohl(nh->daddr);
@@ -1735,125 +1151,54 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 				//process outgoing traffic
 				if (ovs_packet_to_net(skb)) {
 					int tcp_data_len;
-					u16 psize;
 					u32 end_seq;
 					struct rcv_ack * the_entry = NULL;
-                    bool retransmission =  false;
-					//printk(KERN_INFO "This packet is outgoing, choose channel and update.(%d --> %d)\n",srcport, dstport);
 					tcp_data_len = ntohs(nh->tot_len) - (nh->ihl << 2) - (tcp->doff << 2);
-					psize = tcp_data_len;
 					end_seq = ntohl(tcp->seq) + tcp_data_len;
 					tcp_key64 = get_tcp_key64(dstip, srcip, dstport, srcport);
 					rcu_read_lock();
 					the_entry = rcv_ack_hashtbl_lookup(tcp_key64);
 					if (likely(the_entry)) {
 						spin_lock(&the_entry->lock);
-                        //add by Yiran 2017 11 11: we only choose channel for data packets
-                        
-                        if(tcp_data_len > 0 && before(end_seq,the_entry->snd_nxt))
-                        {
-                            //printk(KERN_INFO "packet size: %u. \n",ntohs(nh->tot_len));
-                            //printk(KERN_INFO "retransmission packet. there is packet loss? ntohl(tcp->seq):%u, the_entry->snd_nxt: %u. \n",ntohl(tcp->seq),the_entry->snd_nxt);
-                            //We consider a retransmission is caused by packet loss
-                            //the_entry->Flags |= VMS_SIN_FLAG;
-                            retransmission = true;
-
-                        }
-                        else if(tcp_data_len > 0 && (after(end_seq,the_entry->snd_nxt) || (end_seq == the_entry->snd_nxt)))
-                        {
-                            the_entry->snd_nxt = end_seq;
-                        }
-
-                        if(the_entry->Flags & VMS_SIN_FLAG){
-                            //lossch = FindLossChannel(ntohl(tcp->seq),the_entry->seq_chain);
-                            if(lossch < 8)
-                            {
-                                //the_entry->Channels[lossch].lossdetected = true;
-                            }
-                            else
-                            {
-                                //printk("We don't find the channel has loss packet");
-                            }
-
-                        }
-						cid = Window_based_Channel_Choosing(the_entry,psize);
-                        /*if(retransmission == false && tcp_data_len > 0)
-                        {
-                            insertToSeqList(the_entry,ntohl(tcp->seq),cid);
-                            if(the_entry->seq_chain == NULL)
-                            {
-                                printk("seq_chain is null!!!!\n");
-                            }
-                            
-                        }*/
-
-                        //csum_replace2(&tcp->check,tcp->source, htons(((srcport - cid) & 7)+ ((srcport & (~7)))));
+                        //choose new channel when flowlet emerge
+						cid = Flowlet_based_Channel_Choosing(the_entry);
 						tcp->source = htons(((srcport - cid) & 7)+ ((srcport & (~7))));
-                        //tcp->source = htons(srcport + cid);
-                        //csum_replace2(&tcp->check, htons(tcp->res1 << 12), htons(tcp->res1 | (cid << 1) << 12));
                         tcp->res1 |= (cid << 1);
 						spin_unlock(&the_entry->lock);
 					}
 					rcu_read_unlock();
 					/*third task, may 1)pack ecn info into a PACK*/		
 					if (tcp->ack) {
-//						printk("return ack:%u\n", ntohl(tcp->ack_seq));
 						struct rcv_data * byte_entry = NULL;
-						u16 fbkid;
+						u16 fbkid=0;
 						u16 RecevivedCount = 0;
-						u32 FbkNumber;
+						u32 FbkNumber=0;
 						u16 RCE = 0 ;
-						int n = 0;
 						//tcp_key64 calculated above
 						rcu_read_lock();
 						byte_entry = rcv_data_hashtbl_lookup(tcp_key64);
 						rcu_read_unlock();
 						if (likely(byte_entry)) {
-							//printk("begin process:outgoing ack:%u.  seq: %u \n",ntohl(tcp->ack_seq),ntohl(tcp->seq));
 							spin_lock(&byte_entry->lock);
-							//byte_entry->expected = ntohl(tcp->ack_seq);
 							rcu_read_lock();
 							the_entry = rcv_ack_hashtbl_lookup(tcp_key64);
 							rcu_read_unlock();
 							if(likely(the_entry))
 							{
-                                //Yiran: detect packet loss
-								if(the_entry->Flags & VMS_SIN_FLAG)
-								{
-									fbkid = 0;
-									RecevivedCount = byte_entry->Channels[fbkid].receivedCount;
-								}
-								else
-								{
-									fbkid = byte_entry->FEEDBACK;
-									n = 0;
-									RecevivedCount = byte_entry -> Channels[fbkid].receivedCount;
-									while(n < VMS_CHANNEL_NUM)
-									{
-                                        if(byte_entry->Channels[fbkid].receivedCount > 0)
-                                        {
-                                            byte_entry->FEEDBACK = (fbkid + 1) & 7;
-                                            break;
-                                        }
-										fbkid = (fbkid + 1) & 7;
-										RecevivedCount = byte_entry->Channels[fbkid].receivedCount;
-										n++;
-									}
-									//printk("packing channel:%u,RecevivedCount:%u\n",fbkid,RecevivedCount);
-								}
+                                //round robin feedback
+								fbkid = byte_entry->FEEDBACK;
+                                RecevivedCount = byte_entry -> Channels[fbkid].receivedCount;
+                                byte_entry->FEEDBACK = (fbkid + 1) & 7;
 								FbkNumber = byte_entry->Channels[fbkid].LocalRecvSeq;
-								RCE = byte_entry->Channels[fbkid].flags & VMS_CHANNEL_RCE;
-                                if (RCE == 0) {
-                                    //printk("no rce feedback\n");
-                                }
+                                RCE = byte_entry->Channels[fbkid].flags & VMS_CHANNEL_RCE;
+                                
 							}
 
-                            //Yiran: only pure acks piggyback, to avoid packet length exceeding MTU
+                            //Yiran:  acks piggyback ECN
                             
-							if(RecevivedCount > 0 && tcp_data_len < 1400/*tcp_data_len <= 1440*/)
+							if(tcp_data_len <= 1400)
 							{
 								int err;
-								//printk("ReceiveCount:%u.fbkid:%u\n",RecevivedCount, fbkid);
 								err = ovs_pack_FBK_info(skb,RecevivedCount,FbkNumber,RCE,fbkid);
                                 //printk("tcp_data_len:%u.\n",tcp_data_len);
 								byte_entry->Channels[fbkid].flags &= (~VMS_CHANNEL_RCE);
@@ -1862,10 +1207,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 								{
 									printk(KERN_INFO "warning, packing feedback info error! outgoing ack:%u.\n",ntohl(tcp->ack_seq));
 								}
-								else //add by yiran 2017.11.9 : only when add option successfully, updata the entry
-								{									
-									byte_entry->Channels[fbkid].receivedCount = 0;
-								}
+								
 							}	
 							
 							spin_unlock(&byte_entry->lock);
@@ -1877,16 +1219,14 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 				}//end processing outgoing skb
                 else {
                     // processing incoming (to the end host) skbs
-                    if(likely(tcp -> res1 & OVS_VMS_ENABLE)){
+                    //if(likely(tcp -> res1 & OVS_VMS_ENABLE)){
                         int tcp_data_len;
                         struct rcv_data * the_entry = NULL;
                         struct rcv_ack * ack_entry = NULL;
                         u8 ChannelID = tcp->res1 >> 1;
                         u32 seq_ack = ntohl(tcp->ack_seq);
-                        u32 seq = ntohl(tcp->seq);
                         tcp_data_len = ntohs(nh->tot_len) - (nh->ihl << 2) - (tcp->doff << 2);
                         tcp_key64 = get_tcp_key64(srcip, dstip, srcport, dstport);
-                        key64 = tcp_key64;
 
                         rcu_read_lock();
                         the_entry = rcv_data_hashtbl_lookup(tcp_key64);
@@ -1897,32 +1237,10 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                             spin_lock(&the_entry->lock);
                             if(tcp_data_len > 0)
                             {
-                                if(the_entry->expected == seq /*&& the_entry->reorder == 0*/) //in-order packets
-                                {
-                                    the_entry->expected = seq + tcp_data_len;
-                                    the_entry->reorder = 0;
-                                    //printk("update the_entry->expected:%u, seq:%u, tcp_data_len:%u. \n",the_entry->expected, seq,tcp_data_len);
-
-                                }
-                                else
-                                {
-                                    the_entry->reorder = 1;
-                                    //reorder = 1; //add to buffer
-                                    //printk("!!!!!!!!!!!!the_entry->expected:%u, receive seq:%u, tcp_data_len:%u. \n",the_entry->expected, seq,tcp_data_len);
-                                }
-                                //expected = seq + tcp_data_len; // expected next data packet
-                                the_entry->Channels[ChannelID].receivedCount += tcp_data_len;
-                                the_entry->Channels[ChannelID].LocalRecvSeq += tcp_data_len;
                                 if((nh->tos & OVS_ECN_MASK) == OVS_ECN_MASK)// receive a packet with ECN mark
                                 {
                                     the_entry->Channels[ChannelID].flags |= VMS_CHANNEL_RCE;
-                                    //printk("marked ECN!\n");
-                                }
-                                else
-                                {
-                                    //printk("receive not ce packet.\n");
-                                    the_entry->Channels[ChannelID].flags &= VMS_CHANNEL_RCE_CLEAR;
-                                }					 
+                                }			 
                             }
                             spin_unlock(&the_entry->lock);
                         }
@@ -1930,22 +1248,6 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                         rcu_read_lock();
                         ack_entry = rcv_ack_hashtbl_lookup(tcp_key64);
                         rcu_read_unlock();
-
-                        //Yiran's logic:receive a packet with SIN flag, save in the rcv_ack table
-                        if(likely(ack_entry))
-                        {
-                            spin_lock(&ack_entry->lock);
-                            if(tcp->ece)
-                            {
-                                printk("what?\n");
-                                //ack_entry->Flags |= VMS_SIN_FLAG; 
-                            }
-                            spin_unlock(&ack_entry->lock);
-                        }
-
-                        //second, if it is an ACK, 
-                        //   i) update "snd_una" in "rcv_ack"
-                        //  ii) run VJ congestion control algorithm and DCTCP logic
                         if (tcp->ack) {
                             struct rcv_ack * the_entry = NULL;
                             bool is_pack = false;
@@ -1955,17 +1257,15 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                             u8 isRCE = 0;
                             u8 fbkcid = 0;
 
-                            //Yiran's logic : PACK  FBK ---->CWR
-                            if (tcp->cwr) {
+                            //Yiran's logic : PACK  FBK ---->VMS
+                            if (tcp -> res1 & OVS_VMS_ENABLE) {
                                 int err;
                                 is_pack = true;
                                 err = ovs_unpack_FBK_info(skb, &fbkNumer, &receivedCount,&isRCE,&fbkcid);
-                                //printk("ovs_unpack_FBK_info:fbkNumer:%u,receivedCount:%u,isRCE:%u,fbkcid:%u.\n",fbkNumer,receivedCount,isRCE,fbkcid);
                                 if (err){
                                     printk(KERN_INFO "warning, unpack packet error\n");
                                     is_pack = false;
 				    			}
-								//printk("unpack: srcip:%u,dstip:%u,srcport:%u,destport:%u,isRCE:%u,FbkNmber:%u,fbkcid:%u.\n",srcip,dstip,srcport,dstport,isRCE,fbkNumer,fbkcid);
                                 nh = ip_hdr(skb);
                                 tcp = tcp_hdr(skb);
 
@@ -1978,57 +1278,21 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                 spin_lock(&the_entry->lock);
 
                                 acked = ntohl(tcp->ack_seq) - the_entry->snd_una;
-                                //printk(KERN_INFO "real ack acked bytes:%u, (%d --> %d)\n",acked, srcport, dstport);
                                 the_entry->snd_una = ntohl(tcp->ack_seq);
                                 if (fbkcid >= 8) {
                                     printk("error! fbkcid=%u   8!!\n", fbkcid);
                                 }
-                                
-                                if (acked == 0 && before(the_entry->snd_una,the_entry->snd_nxt) && (tcp_data_len == 0)) {
-                                    //printk("Duplicated ACK!!!!!, ack_seq:%u, expectd:%u, fbkcid:%u, receivedCount:%u, isRCE:%u. \n", ntohl(tcp->ack_seq),the_entry->snd_una, fbkcid,receivedCount,isRCE);
-                                    the_entry->dupack_cnt ++;
-                                } else {
-                                    the_entry->dupack_cnt = 0;
-                                    //freeChain(the_entry->seq_chain,ntohl(tcp->ack_seq),the_entry);
-                                }
                                 if (is_pack) {  
                                     OnFeedBack(the_entry,fbkcid,receivedCount,fbkNumer,isRCE,seq_ack);
                                 }
-                                //Yiran: when receive RCE feedback, we know which channel encounters congesiton but when packet lost, we don't know which channel lost packet!!!!!!
-                                if(the_entry->dupack_cnt >= 3)
-                                {
-                                    if(the_entry->dupack_cnt >= 3)
-                                    {
-                                        the_entry->dupack_cnt = 0;
-                                        //the_entry->Flags |= VMS_SIN_FLAG;
-                                        printk("imcoming packet: dupack_cnt >=3\n");
-                                    }
-                                        
-                                        
-                                }
-                               
-                                //printk(KERN_INFO "begin rwnd enforce: \n");
-                                //printk("incoming ACK, win scale is %u\n", the_entry->snd_wscale);	
-                                //rwnd enforce put here
-                                if ( (ntohs(tcp->window) << the_entry->snd_wscale) > the_entry->rwnd){
-                                    u16 enforce_win = the_entry->rwnd >> the_entry->snd_wscale;
-                                    //printk("ntohs(tcp->window):%u,enforce_win:%u.\n",ntohs(tcp->window),enforce_win);
-                                    /*csum_replace2(&tcp->check,tcp->window, htons(enforce_win));*/
-                                    tcp->window = htons(enforce_win);
-                                    //printk(KERN_INFO "update tcp->window %d\n", enforce_win);
-                                }
-
-
+                                
                                 spin_unlock(&the_entry->lock);
 
                             }
 
                         }
 
-
-
-
-                    }	
+                    //}	
                 }
             }//end processing incoming SKB
         }//it was an TCP skb
@@ -2040,80 +1304,32 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
       it is always 0. For producation code, this can be solved by adding 
       a few more lines of code
      */
-    //struct sk_buff *newskb = NULL;
-    struct rcv_data * the_entry = NULL;
+    
     if(ntohs(skb->protocol) == ETH_P_IP)
     {
         nh = ip_hdr(skb);
         if(nh->protocol == IPPROTO_TCP) {//this is an TCP packet
             tcp = tcp_hdr(skb);
             if (ovs_packet_to_net(skb)) {// outgoing to the NIC, enable VMS and ECN
-                /*csum_replace2(&tcp->check, htons(tcp->res1 << 12), htons((tcp->res1 | OVS_VMS_ENABLE) << 12));*/
-                tcp->res1 |= OVS_VMS_ENABLE;
+                //tcp->res1 |= OVS_VMS_ENABLE;
                 if ( (nh->tos & OVS_ECN_MASK) == OVS_ECN_ZERO) {//get the last 2 bits 
                     ipv4_change_dsfield(nh, 0, OVS_ECN_ONE);
                 }
-                if(tcp->psh == 1)
-                {
-                    //tcp->psh = 0;
-                }
-                //if(skb_is_nonlinear(skb))
-                    //skb_linearize(skb);
-                /*header_len = (ntohs(nh->tot_len) - (nh->ihl << 2));
-                tcp->check = 0;
-                tcp->check = tcp_v4_check(header_len,nh->saddr,nh->daddr,csum_partial((char*) tcp, header_len, 0));*/
-                //printk(KERN_INFO "out : skb->ip_summed:%d,tcp->check:%02x, seq:%u.\n",skb->ip_summed,ntohs(tcp->check),ntohl(tcp->seq));
-
             }
             else {
                 //Yiran's logic: imcoming packet, clear the mark
-                if ( (nh->tos & OVS_ECN_MASK) != OVS_ECN_ZERO && (tcp->res1 & OVS_VMS_ENABLE) == OVS_VMS_ENABLE )
-                {
-                    
-                    ipv4_change_dsfield(nh, 0, OVS_ECN_ZERO);                 
-                    /*csum_replace2(&tcp->check, htons(tcp->res1 << 12), htons((tcp->res1 & 0) << 12));*/
-                    tcp->res1 &= 0;
-                }
-
+                tcp->res1 &= 0;
                 if (tcp->ece)   //SIN
                 {                    
                     /*csum_replace2(&tcp->check, htons(tcp->ece << 15), htons(0));*/
-                    tcp->ece = 0;
-                    //printk("tcp->ece is 1 !\n");
+                    //tcp->ece = 0;
                 }
                 if(tcp->cwr)    //FBK
                 { 
                     /*csum_replace2(&tcp->check, htons(tcp->cwr << 15), htons(0));*/
-                    tcp->cwr = 0;
+                    //tcp->cwr = 0;
                 }
-                //if(skb_is_nonlinear(skb))
-                    //skb_linearize(skb);
-                /*header_len = (ntohs(nh->tot_len) - (nh->ihl << 2));
-                tcp->check = 0;
-                tcp->check = tcp_v4_check(header_len,nh->saddr,nh->daddr,csum_partial((char*) tcp, header_len, 0));*/
-                //printk(KERN_INFO "in : skb->ip_summed:%d,tcp->check:%02x, seq:%u.\n",skb->ip_summed,ntohs(tcp->check),ntohl(tcp->seq));
-
-                rcu_read_lock();
-                the_entry = rcv_data_hashtbl_lookup(key64);
-                //tmp_entry = the_entry;
-                rcu_read_unlock();
-                //reorder = 1;
-                if(likely(the_entry) && reorder == 1)
-                {
-                    
-                    spin_lock(&the_entry->lock);
-                    //newskb = skb;
-                    if(skb != NULL)
-                    {
-                        addToBuffer(key, skb, flow, dp, the_entry);
-                        //printk("add to reorder buffer.\n");
-                    }
-                    else 
-                    {
-                        printk("add to buffer failure!.\n");
-                    }
-                    spin_unlock(&the_entry->lock);
-                }
+                
             }
             
         }//it was an TCP packet
@@ -2122,23 +1338,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 
     ovs_flow_stats_update(flow, key->tp.flags, skb);
     sf_acts = rcu_dereference(flow->sf_acts);
-    if(likely(the_entry) && reorder == 0) {
-        ovs_execute_actions(dp, skb, sf_acts, key);
-    } else if (likely(the_entry) && reorder == 1){
-        
-        /*if (the_entry != NULL) {
-            spin_lock(&the_entry->lock);
-            if (the_entry->order_tree != NULL) {
-                BufferDump(the_entry->order_tree, the_entry);
-            }
-            the_entry->reorder = 0;
-            spin_unlock(&the_entry->lock);
-        }*/
-    }
-    else
-    {
-        ovs_execute_actions(dp, skb, sf_acts, key);
-    }
+    ovs_execute_actions(dp, skb, sf_acts, key);
 
     stats_counter = &stats->n_hit;
 out:
@@ -4314,10 +3514,10 @@ error:
 
 static void dp_cleanup(void)
 {
-	/*Yiran's logic*/
-	del_timer_sync(&my_timer);
-	__hashtbl_exit();
-	/*Yiran's logic*/
+
+    /*Yiran's logic*/
+    __hashtbl_exit();
+    /*Yiran's logic*/
 	dp_unregister_genl(ARRAY_SIZE(dp_genl_families));
 	ovs_netdev_exit();
 	unregister_netdevice_notifier(&ovs_dp_device_notifier);

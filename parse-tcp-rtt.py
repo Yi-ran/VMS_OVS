@@ -10,7 +10,7 @@ if len(sys.argv) == 1:
 - argv[1] analysis directory
 """
 
-cmd = "tshark -r %s -R \"tcp.analysis.ack_rtt\" \
+cmd = "tshark -r %s -Y \"tcp.analysis.ack_rtt\" \
     -e tcp.analysis.ack_rtt -T fields"
 
 path = sys.argv[1]
