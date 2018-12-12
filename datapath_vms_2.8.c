@@ -1897,10 +1897,10 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                             spin_lock(&the_entry->lock);
                             if(tcp_data_len > 0)
                             {
-                                if(the_entry->expected == seq /*&& the_entry->reorder == 0*/) //in-order packets
+                                if(the_entry->expected == seq && the_entry->reorder == 0) //in-order packets
                                 {
                                     the_entry->expected = seq + tcp_data_len;
-                                    the_entry->reorder = 0;
+                                    //the_entry->reorder = 0;
                                     //printk("update the_entry->expected:%u, seq:%u, tcp_data_len:%u. \n",the_entry->expected, seq,tcp_data_len);
 
                                 }
@@ -1916,7 +1916,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                 if((nh->tos & OVS_ECN_MASK) == OVS_ECN_MASK)// receive a packet with ECN mark
                                 {
                                     the_entry->Channels[ChannelID].flags |= VMS_CHANNEL_RCE;
-                                    //printk("marked ECN!\n");
+                                    printk("marked ECN!\n");
                                 }
                                 else
                                 {
@@ -2055,7 +2055,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                 }
                 if(tcp->psh == 1)
                 {
-                    //tcp->psh = 0;
+                    tcp->psh = 0;
                 }
                 //if(skb_is_nonlinear(skb))
                     //skb_linearize(skb);
