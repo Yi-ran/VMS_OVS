@@ -1342,7 +1342,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                         n++;
                                     }
                                     //printk("packing channel:%u,RecevivedCount:%u\n",fbkid,RecevivedCount);
-                                }
+                                
                                 FbkNumber = byte_entry->Channels[fbkid].LocalRecvSeq;
                                 RCE = byte_entry->Channels[fbkid].flags & VMS_CHANNEL_RCE;
                                 
