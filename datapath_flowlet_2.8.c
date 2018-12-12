@@ -81,7 +81,9 @@
 #define RWND_INIT 2800U
 #define RWND_MIN (MSS)
 #define RWND_STEP (MSS)
-#define RWND_SSTHRESH_INIT ULONG_MAX
+#define RWND_CLAMP (10*1000*1000*4/8) //4 means the maximal latency expected (4 msec), in bytes
+//#define RWND_SSTHRESH_INIT ULONG_MAX
+#define RWND_SSTHRESH_INIT 0xFFFFFFFFUL
 #define DCTCP_ALPHA_INIT 1024U
 #define DCTCP_MAX_ALPHA  1024U
 static unsigned int MSS = MSS_DEFAULT;
