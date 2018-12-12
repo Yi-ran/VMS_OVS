@@ -659,7 +659,7 @@ u16 getTrueSrcPort(struct tcphdr * tcp)
     
     return port;
 }
-int Flowlet_based_Channel_Choosing(struct rcv_ack* the_entry,u16 psize){
+/*int Flowlet_based_Channel_Choosing(struct rcv_ack* the_entry,u16 psize){
     int c = the_entry->currentChannel;
     int check = c;
     u16 r1,r2;
@@ -677,7 +677,7 @@ int Flowlet_based_Channel_Choosing(struct rcv_ack* the_entry,u16 psize){
     //return maxC;
     if(the_entry->Flags & VMS_SIN_FLAG)
     {        
-        /*for (i = 0; i <= VMS_CHANNEL_NUM - 1; i++)  {
+        for (i = 0; i <= VMS_CHANNEL_NUM - 1; i++)  {
             
             ch = &(the_entry -> Channels[i]);
             if(ch->lossdetected == true)
@@ -690,7 +690,7 @@ int Flowlet_based_Channel_Choosing(struct rcv_ack* the_entry,u16 psize){
                         max = ch->rwnd - onfly;
                         maxC = i;
             }  
-        }*/
+        }
         the_entry->Channels[maxC].LocalSendSeq += psize;
         the_entry->currentChannel = maxC;
         return maxC;        
@@ -727,8 +727,8 @@ int Flowlet_based_Channel_Choosing(struct rcv_ack* the_entry,u16 psize){
     the_entry->Channels[maxC].LocalSendSeq += psize;
     the_entry->currentChannel = maxC;
     return maxC;
-}
-/*int Flowlet_based_Channel_Choosing(struct rcv_ack* the_entry){
+}*/
+int Flowlet_based_Channel_Choosing(struct rcv_ack* the_entry,u16 psize){
     int c = the_entry->currentChannel;
     u64 now = jiffies;
     u32 min = 0xffffffff;
@@ -755,15 +755,15 @@ int Flowlet_based_Channel_Choosing(struct rcv_ack* the_entry,u16 psize){
         }
         if(minc == temp)
         {
-            //minc = (minc + 1) & 7;
+            minc = (minc + 1) & 7;
         }
 
     }
     the_entry->currentChannel = minc;
     return minc;
-}*/
+}
 
-/*int OnFeedBack(struct rcv_ack* the_entry,int fbkid,u32 receiveCount,u32 fbkNumber,int isRCE,u32 seq_ack)
+int OnFeedBack(struct rcv_ack* the_entry,int fbkid,u32 receiveCount,u32 fbkNumber,int isRCE,u32 seq_ack)
 {
     struct ChannelInfo *ch = NULL;
     int i = 0;
@@ -790,8 +790,8 @@ int Flowlet_based_Channel_Choosing(struct rcv_ack* the_entry,u16 psize){
         //printk("this is one RTT.\n");
     }
     return 0;
-}*/
-int OnFeedBack(struct rcv_ack* the_entry,int fbkid,u32 receiveCount,u32 fbkNumber,int isRCE,u32 seq_ack)
+}
+/*int OnFeedBack(struct rcv_ack* the_entry,int fbkid,u32 receiveCount,u32 fbkNumber,int isRCE,u32 seq_ack)
 {
     struct ChannelInfo *ch = NULL;
     u64 adder = 0;
@@ -863,7 +863,7 @@ int OnFeedBack(struct rcv_ack* the_entry,int fbkid,u32 receiveCount,u32 fbkNumbe
         the_entry->MileStone = the_entry->snd_nxt + 1;
     }
     return 0;
-}
+}*/
 
 
 
@@ -1321,13 +1321,13 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 							if(likely(the_entry))
 							{
                                 //round robin feedback
-								/*fbkid = byte_entry->FEEDBACK;
+								fbkid = byte_entry->FEEDBACK;
                                 RecevivedCount = byte_entry -> Channels[fbkid].receivedCount;
                                 byte_entry->FEEDBACK = (fbkid + 1) & 7;
 								FbkNumber = byte_entry->Channels[fbkid].LocalRecvSeq;
-                                RCE = byte_entry->Channels[fbkid].flags & VMS_CHANNEL_RCE;*/
+                                RCE = byte_entry->Channels[fbkid].flags & VMS_CHANNEL_RCE;
 
-                                fbkid = byte_entry->FEEDBACK;
+                                /*fbkid = byte_entry->FEEDBACK;
                                     n = 0;
                                     RecevivedCount = byte_entry -> Channels[fbkid].receivedCount;
                                     while(n < VMS_CHANNEL_NUM)
@@ -1341,16 +1341,15 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                         RecevivedCount = byte_entry->Channels[fbkid].receivedCount;
                                         n++;
                                     }
-                                    //printk("packing channel:%u,RecevivedCount:%u\n",fbkid,RecevivedCount);
                                 
                                 FbkNumber = byte_entry->Channels[fbkid].LocalRecvSeq;
-                                RCE = byte_entry->Channels[fbkid].flags & VMS_CHANNEL_RCE;
+                                RCE = byte_entry->Channels[fbkid].flags & VMS_CHANNEL_RCE;*/
                                 
 							}
 
                             //Yiran:  acks piggyback ECN
                             
-							if(RecevivedCount > 0 && tcp_data_len <= 1400)
+							if(tcp_data_len <= 1400)
 							{
 								int err;
 								err = ovs_pack_FBK_info(skb,RecevivedCount,FbkNumber,RCE,fbkid);
@@ -1416,7 +1415,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                 else
                                 {
                                     //printk("receive not ce packet.\n");
-                                    the_entry->Channels[ChannelID].flags &= VMS_CHANNEL_RCE_CLEAR;
+                                    //the_entry->Channels[ChannelID].flags &= VMS_CHANNEL_RCE_CLEAR;
                                 }                    
                             }
                             spin_unlock(&the_entry->lock);
