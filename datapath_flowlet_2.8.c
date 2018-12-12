@@ -604,7 +604,7 @@ u16 getTrueSrcPort(struct tcphdr * tcp)
     
     return port;
 }
-int Flowlet_based_Channel_Choosing(struct rcv_ack* the_entry){
+int Flowlet_based_Channel_Choosing(struct rcv_ack* the_entry,u16 psize){
     int c = the_entry->currentChannel;
     int check = c;
     u16 r1,r2;
@@ -1226,7 +1226,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                             the_entry->snd_nxt = end_seq;
                         }
                         //choose new channel when flowlet emerge
-						cid = Flowlet_based_Channel_Choosing(the_entry);
+						cid = Flowlet_based_Channel_Choosing(the_entry,tcp_data_len);
 						tcp->source = htons(((srcport - cid) & 7)+ ((srcport & (~7))));
                         tcp->res1 |= (cid << 1);
 						spin_unlock(&the_entry->lock);
