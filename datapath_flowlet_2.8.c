@@ -667,7 +667,7 @@ int Flowlet_based_Channel_Choosing(struct rcv_ack* the_entry){
     //this is useful at the beginning. all ch->rwnd: 2800
     if(maxC == check)
     {
-        //maxC = (maxC + 1) & 7;
+        maxC = (maxC + 1) & 7;
     }
     the_entry->Channels[maxC].LocalSendSeq += psize;
     the_entry->currentChannel = maxC;
