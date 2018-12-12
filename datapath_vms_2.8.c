@@ -1065,10 +1065,10 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
     int c = the_entry->currentChannel;
     int check = c;
     u16 r1,r2;
-    u32 onfly1,onfly2,rwnd1,rwnd2,rwnd;
-    u32 avail = 0;
-    u32 avail1 = 0;
-    u32 avail2 = 0;
+    //u32 onfly1,onfly2,rwnd1,rwnd2,rwnd;
+    //u32 avail = 0;
+    //u32 avail1 = 0;
+    //u32 avail2 = 0;
     struct ChannelInfo *ch = NULL;
     u8 i = 0;
     u32 max = 0;
@@ -1077,10 +1077,10 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
     u64 tmp = 0x100000000;
     
     //after packet loss, avoid the loss channel, if no loss channel, degrade to one channel
-    maxC = 0;
-    //the_entry->Channels[maxC].LocalSendSeq += psize;
-    //the_entry->currentChannel = maxC;
-    //return maxC;
+    //maxC = 0;
+    the_entry->Channels[maxC].LocalSendSeq += psize;
+    the_entry->currentChannel = maxC;
+    return maxC;
     if(the_entry->Flags & VMS_SIN_FLAG)
     {        
         /*for (i = 0; i <= VMS_CHANNEL_NUM - 1; i++)  {
