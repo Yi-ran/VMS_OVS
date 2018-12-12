@@ -52,6 +52,7 @@ s ecn_config 0xffffff
 
 #查看ECMP hash配置
 g hash_control
+m hash_control
 
 #主机路由配置
 arp -s 网关ip 交换机l3接口的mac
