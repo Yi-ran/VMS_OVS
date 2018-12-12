@@ -1308,6 +1308,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 						u16 RecevivedCount = 0;
 						u32 FbkNumber=0;
 						u16 RCE = 0 ;
+                        u8 n = 0;
 						//tcp_key64 calculated above
 						rcu_read_lock();
 						byte_entry = rcv_data_hashtbl_lookup(tcp_key64);
@@ -1320,10 +1321,29 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 							if(likely(the_entry))
 							{
                                 //round robin feedback
-								fbkid = byte_entry->FEEDBACK;
+								/*fbkid = byte_entry->FEEDBACK;
                                 RecevivedCount = byte_entry -> Channels[fbkid].receivedCount;
                                 byte_entry->FEEDBACK = (fbkid + 1) & 7;
 								FbkNumber = byte_entry->Channels[fbkid].LocalRecvSeq;
+                                RCE = byte_entry->Channels[fbkid].flags & VMS_CHANNEL_RCE;*/
+
+                                fbkid = byte_entry->FEEDBACK;
+                                    n = 0;
+                                    RecevivedCount = byte_entry -> Channels[fbkid].receivedCount;
+                                    while(n < VMS_CHANNEL_NUM)
+                                    {
+                                        if(byte_entry->Channels[fbkid].receivedCount > 0)
+                                        {
+                                            byte_entry->FEEDBACK = (fbkid + 1) & 7;
+                                            break;
+                                        }
+                                        fbkid = (fbkid + 1) & 7;
+                                        RecevivedCount = byte_entry->Channels[fbkid].receivedCount;
+                                        n++;
+                                    }
+                                    //printk("packing channel:%u,RecevivedCount:%u\n",fbkid,RecevivedCount);
+                                }
+                                FbkNumber = byte_entry->Channels[fbkid].LocalRecvSeq;
                                 RCE = byte_entry->Channels[fbkid].flags & VMS_CHANNEL_RCE;
                                 
 							}
