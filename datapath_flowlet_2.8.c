@@ -1350,7 +1350,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 
                             //Yiran:  acks piggyback ECN
                             
-							if(RecevivedCount > 0 && tcp_data_len <= 1400)
+							if(tcp_data_len <= 1400)
 							{
 								int err;
 								err = ovs_pack_FBK_info(skb,RecevivedCount,FbkNumber,RCE,fbkid);
@@ -1391,10 +1391,32 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                             spin_lock(&the_entry->lock);
                             if(tcp_data_len > 0)
                             {
+                                if(the_entry->expected == seq && the_entry->reorder == 0) //in-order packets
+                                {
+                                    the_entry->expected = seq + tcp_data_len;
+                                    //the_entry->reorder = 0;
+                                    //printk("update the_entry->expected:%u, seq:%u, tcp_data_len:%u. \n",the_entry->expected, seq,tcp_data_len);
+
+                                }
+                                else
+                                {
+                                    the_entry->reorder = 1;
+                                    //reorder = 1; //add to buffer
+                                    //printk("!!!!!!!!!!!!the_entry->expected:%u, receive seq:%u, tcp_data_len:%u. \n",the_entry->expected, seq,tcp_data_len);
+                                }
+                                //expected = seq + tcp_data_len; // expected next data packet
+                                the_entry->Channels[ChannelID].receivedCount += tcp_data_len;
+                                the_entry->Channels[ChannelID].LocalRecvSeq += tcp_data_len;
                                 if((nh->tos & OVS_ECN_MASK) == OVS_ECN_MASK)// receive a packet with ECN mark
                                 {
                                     the_entry->Channels[ChannelID].flags |= VMS_CHANNEL_RCE;
-                                }			 
+                                    //printk("marked ECN!\n");
+                                }
+                                else
+                                {
+                                    //printk("receive not ce packet.\n");
+                                    the_entry->Channels[ChannelID].flags &= VMS_CHANNEL_RCE_CLEAR;
+                                }                    
                             }
                             spin_unlock(&the_entry->lock);
                         }
