@@ -1350,7 +1350,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 
                             //Yiran:  acks piggyback ECN
                             
-							if(tcp_data_len <= 1400)
+							if(RecevivedCount > 0 && tcp_data_len <= 1400)
 							{
 								int err;
 								err = ovs_pack_FBK_info(skb,RecevivedCount,FbkNumber,RCE,fbkid);
