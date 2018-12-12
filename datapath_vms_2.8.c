@@ -1078,9 +1078,9 @@ int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
     
     //after packet loss, avoid the loss channel, if no loss channel, degrade to one channel
     //maxC = 0;
-    //the_entry->Channels[maxC].LocalSendSeq += psize;
-    //the_entry->currentChannel = maxC;
-    //return maxC;
+    the_entry->Channels[maxC].LocalSendSeq += psize;
+    the_entry->currentChannel = maxC;
+    return maxC;
     if(the_entry->Flags & VMS_SIN_FLAG)
     {        
         /*for (i = 0; i <= VMS_CHANNEL_NUM - 1; i++)  {
@@ -2014,7 +2014,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                                     u16 enforce_win = the_entry->rwnd >> the_entry->snd_wscale;
                                     //printk("ntohs(tcp->window):%u,enforce_win:%u.\n",ntohs(tcp->window),enforce_win);
                                     /*csum_replace2(&tcp->check,tcp->window, htons(enforce_win));*/
-                                    tcp->window = htons(enforce_win);
+                                    //tcp->window = htons(enforce_win);
                                     //printk(KERN_INFO "update tcp->window %d\n", enforce_win);
                                 }
 
