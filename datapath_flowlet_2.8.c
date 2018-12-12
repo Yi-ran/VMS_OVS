@@ -130,7 +130,7 @@ FBK  -------> CWR
 SIN  -------> ECE
 */
 
-struct ChannelInfo {
+/*struct ChannelInfo {
     u32 receivedCount;
     u32 CECount;
     u32 LocalSendSeq;
@@ -163,9 +163,60 @@ struct rcv_ack {
     spinlock_t lock;
     struct hlist_node hash;
     struct rcu_head rcu;
+};*/
+
+struct ChannelInfo {
+    u32 receivedCount;
+    u32 rwnd;           
+    u32 rwnd_ssthresh;
+    u32 rwnd_clamp;
+    u32 alpha;
+    u32 LocalSendSeq;
+    u32 LocalRecvSeq;
+    u32 LocalFBKSeq;
+    u32 RttSize;
+    u32 RttCESize;  
+    u16 flags;
+    bool lossdetected;
 };
 
+struct rcv_data {
+    u64 key; //key of a flow, {LOW16(srcip), LOW16(dstip), tcpsrc, tcpdst}
+    u8 reorder;// identifying whether this flow is out-of-order
+    u64 record_jiffies;
+    u8 FEEDBACK;
+    struct sw_flow_key *skey;
+    struct datapath *dp ;
+    struct sw_flow *flow;
+    struct TreeNode *order_tree;
 
+    u32 expected;
+    struct ChannelInfo Channels[8];
+    spinlock_t lock; //lock for read/write, write/write conflicts
+    struct hlist_node hash;
+    struct rcu_head rcu;
+};
+
+struct rcv_ack {
+    u64 key;
+    u32 rwnd;
+    u32 rwnd_clamp;
+    u32 snd_una;   //LastACK
+    u32 snd_nxt;   //NextSeq
+    u32 next_seq;
+    u8 snd_wscale;
+    u32 dupack_cnt;
+    u32 MileStone;
+    u8 Flags;
+    u8 currentChannel;
+    //for packet loss
+    struct SeqChain *seq_chain;
+
+    struct ChannelInfo Channels[8];
+    spinlock_t lock;
+    struct hlist_node hash;
+    struct rcu_head rcu;
+};
 /*end of Yiran's structure*/
 
 
