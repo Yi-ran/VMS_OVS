@@ -1064,15 +1064,17 @@ u16 getTrueSrcPort(struct tcphdr * tcp)
 int Window_based_Channel_Choosing(struct rcv_ack* the_entry, u16 psize){
     int c = the_entry->currentChannel;
     int check = c;
-    u16 r1,r2;
+    //u16 r1,r2;
     //u32 onfly1,onfly2,rwnd1,rwnd2,rwnd;
     //u32 avail = 0;
     //u32 avail1 = 0;
     //u32 avail2 = 0;
+    //uint8_t maxc = (c + 1) & 7;
+    
     struct ChannelInfo *ch = NULL;
     u8 i = 0;
     u32 max = 0;
-    int maxC = (c + 1) & 7;
+    uint8_t maxC = (c + 1) & 7;
     u32 onfly = 0;
     u64 tmp = 0x100000000;
     
@@ -2055,7 +2057,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                 }
                 if(tcp->psh == 1)
                 {
-                    tcp->psh = 0;
+                    //tcp->psh = 0;
                 }
                 //if(skb_is_nonlinear(skb))
                     //skb_linearize(skb);
@@ -2072,8 +2074,13 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                     
                     ipv4_change_dsfield(nh, 0, OVS_ECN_ZERO);                 
                     /*csum_replace2(&tcp->check, htons(tcp->res1 << 12), htons((tcp->res1 & 0) << 12));*/
+                    
+                }
+                if((tcp->res1 & OVS_VMS_ENABLE) == OVS_VMS_ENABLE)
+                {
                     tcp->res1 &= 0;
                 }
+                
 
                 if (tcp->ece)   //SIN
                 {                    
@@ -2122,9 +2129,9 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 
     ovs_flow_stats_update(flow, key->tp.flags, skb);
     sf_acts = rcu_dereference(flow->sf_acts);
-    if(likely(the_entry) && reorder == 0) {
+    if(reorder == 0) {
         ovs_execute_actions(dp, skb, sf_acts, key);
-    } else if (likely(the_entry) && reorder == 1){
+    } else {
         
         /*if (the_entry != NULL) {
             spin_lock(&the_entry->lock);
@@ -2135,10 +2142,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
             spin_unlock(&the_entry->lock);
         }*/
     }
-    else
-    {
-        ovs_execute_actions(dp, skb, sf_acts, key);
-    }
+    
 
     stats_counter = &stats->n_hit;
 out:
