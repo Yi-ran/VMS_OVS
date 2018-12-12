@@ -1,0 +1,58 @@
+1.configuration:
+12 servers
+6 sender : 192.168.2.3-192.168.2.8
+6 receiver: 192.168.3.9 192.168.3.11 192.168.3.12 192.168.3.14-192.168.3.16
+4 switches, 4 equal paths
+
+
+2.server command
+  ansible remote -m command -a "rm -rf VMS_OVS chdir=/home/jiacheng"
+
+  ansible remote -m command -a "git clone https://github.com/Yi-ran/VMS_OVS.git"
+
+  ansible remote -m command -a "sh vms.sh chdir=/home/jiacheng" --become
+
+  ansible remote -m command -a "ethtool -X eno2 weight 1" --become
+
+  ansible server -m command -a "./bin/server -p 5001 -d chdir=/home/jiacheng/TrafficGenerator"
+
+  ansible client -m command -a "./bin/client -b 150 -c conf/client_config_web.txt -n 100 -l load30web.txt -s 200 chdir=/home/jiacheng/TrafficGenerator"
+
+  cd TrafficGenerator
+  ansible client -m fetch -a "src=TrafficGenerator/load30web.txt dest=."
+
+
+3.switch configuration BCM芯片交换机 ECMP + ECN
+#创建Vlan 默认所有端口在vlan1 创建新vlan后将端口从vlan1删除
+vlan create 
+vlan remove
+
+#添加l2 mac地址（相连主机的mac地址）
+l2 add mac= port=
+
+#添加l3 接口 有几个vlan 添加几个l3接口
+l3 intf add vlan= mac= intf=
+
+#开启egress管理模式（用于配置ECMP）
+sc l3egressmode=1 
+
+#添加l3出接口 mac地址是端口相连的下一跳mac地址
+l3 egress add port= mac= intf=
+
+#添加l3多接口 intf是前面添加的l3 egress的编号
+l3 multipath add size= intf0= intf1= intf2= intf3=
+
+#配置三层路由表 如果是ecmp的路由，intf是l3对应multipath的编号
+l3 defip add ip= mask= ecmp=1 intf=
+
+#开启ECN
+m wredconfig_packet maxdroprate=0xe enable=1
+m wredparam_packet dropstartpoint=10 dropendpoint=10
+s ecn_config 0xffffff
+
+#查看ECMP hash配置
+g hash_ontrol
+
+#主机路由配置
+arp -s 网关ip 交换机l3接口的mac
+  
