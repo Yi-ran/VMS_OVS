@@ -1379,6 +1379,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
                         struct rcv_ack * ack_entry = NULL;
                         u8 ChannelID = tcp->res1 >> 1;
                         u32 seq_ack = ntohl(tcp->ack_seq);
+                        u32 seq = ntohl(tcp->seq);
                         tcp_data_len = ntohs(nh->tot_len) - (nh->ihl << 2) - (tcp->doff << 2);
                         tcp_key64 = get_tcp_key64(srcip, dstip, srcport, dstport);
 
